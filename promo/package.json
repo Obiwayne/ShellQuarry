@@ -1,0 +1,22 @@
+{
+  "name": "shellquarry-promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "still": "remotion still src/index.tsx",
+    "music": "python music/jazz.py public/jazz.wav",
+    "render": "remotion render src/index.tsx Promo out/shellquarry-promo-raw.mp4 --codec h264 --crf 16 --pixel-format yuv420p",
+    "finish": "ffmpeg -y -i out/shellquarry-promo-raw.mp4 -af loudnorm=I=-14:TP=-1.5:LRA=7 -c:a aac -b:a 192k -vf scale=out_range=tv,format=yuv420p -c:v libx264 -crf 16 -preset slow -movflags +faststart out/ShellQuarry-promo-20s.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.370",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "remotion": "4.0.370"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "typescript": "5.9.2"
+  }
+}

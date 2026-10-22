@@ -1,0 +1,36 @@
+{
+ "voice": "af_heart",
+ "speed": 1.08,
+ "lines": [
+  {
+   "file": "vo-1.wav",
+   "text": "Running a few coding agents at once?",
+   "seconds": 1.963
+  },
+  {
+   "file": "vo-2.wav",
+   "text": "Meet ShellQuarry. Herdr, with buttons.",
+   "seconds": 2.252
+  },
+  {
+   "file": "vo-3.wav",
+   "text": "Start Claude Code, Codex, or twenty-two more.",
+   "seconds": 2.583
+  },
+  {
+   "file": "vo-4.wav",
+   "text": "Give them a browser they drive while you watch.",
+   "seconds": 2.167
+  },
+  {
+   "file": "vo-5.wav",
+   "text": "And see which one needs you.",
+   "seconds": 1.247
+  },
+  {
+   "file": "vo-6.wav",
+   "text": "ShellQuarry. Free and open source.",
+   "seconds": 2.013
+  }
+ ]
+}

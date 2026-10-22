@@ -1,0 +1,4 @@
+node_modules/
+out/
+voice/models/
+voice/.venv/
