@@ -1,0 +1,8 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/schemas/
+release/
+*.log
+ui/vendor/
+try-agent-output/
+dev.log
