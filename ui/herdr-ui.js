@@ -169,7 +169,11 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `herdr-tab${t.focused ? ' active' : ''}`;
-      b.textContent = t.label && t.label !== String(t.number) ? `${t.number} ${t.label}` : `Tab ${t.number}`;
+      // Say what's in the tab: its agents' names, or "Terminal". A name the user gave the tab wins.
+      const inTab = (local.agents || []).filter((a) => a.tab_id === t.tab_id).map(nameOf);
+      const named = t.label && t.label !== String(t.number) && !inTab.includes(t.label);
+      b.textContent = named ? t.label : inTab.length ? inTab.join(' + ') : 'Terminal';
+      b.title = `Tab ${t.number}${inTab.length ? `: ${inTab.join(', ')}` : ': a terminal'} (right-click to rename)`;
       if (t.agent_status === 'working' || t.agent_status === 'blocked') {
         const d = document.createElement('span');
         d.className = `dot ${t.agent_status}`;
