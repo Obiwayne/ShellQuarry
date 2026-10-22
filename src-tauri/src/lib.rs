@@ -12,6 +12,7 @@
 
 mod browser;
 mod control;
+mod herdr;
 mod pty;
 mod sys;
 
@@ -52,6 +53,7 @@ fn app_info(app: AppHandle, launch: tauri::State<Launch>) -> Value {
         "memory_gb": sys::total_memory_gb(),
         "lite_below_gb": sys::LITE_BELOW_GB,
         "theme": sys::herdr_theme(),
+        "herdr_keys": sys::herdr_config_table("keys"),
         "browser": browser::snapshot(&app),
     })
 }
@@ -61,27 +63,55 @@ fn herdr_theme() -> Value {
     sys::herdr_theme()
 }
 
-/// Herdr workspaces and agents for the sidebar.
+/// This machine's Herdr workspaces, agents and tabs, for the sidebar.
 #[tauri::command]
 async fn herdr_overview() -> Value {
-    sys::herdr_overview()
+    herdr::overview()
 }
 
-/// Focuses a Herdr agent or workspace in the terminal.
+/// Saved Herdr machines with their workspaces and agents.
 #[tauri::command]
-async fn herdr_focus(kind: String, id: String) -> Result<(), String> {
-    let noun = match kind.as_str() {
-        "agent" => "agent",
-        "workspace" => "workspace",
-        _ => return Err(format!("unknown kind {kind}")),
-    };
-    sys::herdr(&[noun, "focus", &id]).map(|_| ())
+async fn herdr_machines() -> Value {
+    herdr::machines()
+}
+
+/// Runs an allowed Herdr command, on another machine when `machine` is set.
+#[tauri::command]
+async fn herdr_cmd(machine: Option<String>, args: Vec<String>) -> Result<Value, String> {
+    herdr::command(machine.as_deref(), &args)
+}
+
+#[tauri::command]
+async fn herdr_new_agent(
+    machine: Option<String>,
+    kind: String,
+    name: String,
+    cwd: String,
+    worktree: bool,
+    branch: Option<String>,
+) -> Result<Value, String> {
+    herdr::new_agent(machine.as_deref(), &kind, &name, &cwd, worktree, branch.as_deref())
+}
+
+#[tauri::command]
+async fn herdr_agent_kinds() -> Value {
+    herdr::installed_kinds()
+}
+
+#[tauri::command]
+fn herdr_add_machine(target: String, label: Option<String>) -> Result<(), String> {
+    herdr::add_machine(&target, label.as_deref())
 }
 
 /// Opens the plugin's "connect agents" popup inside Herdr.
 #[tauri::command]
 async fn herdr_open_setup() -> Result<(), String> {
-    sys::herdr(&["plugin", "pane", "open", "--plugin", "shellquarry.browser", "--entrypoint", "setup", "--focus"]).map(|_| ())
+    herdr::run(
+        None,
+        &["plugin", "pane", "open", "--plugin", "shellquarry.browser", "--entrypoint", "setup", "--focus"],
+        std::time::Duration::from_secs(15),
+    )
+    .map(|_| ())
 }
 
 #[tauri::command]
@@ -187,13 +217,18 @@ pub fn run() {
                 }
             });
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(browser::BrowserState(Default::default()))
         .invoke_handler(tauri::generate_handler![
             app_info,
             herdr_theme,
             herdr_overview,
-            herdr_focus,
+            herdr_machines,
+            herdr_cmd,
+            herdr_new_agent,
+            herdr_agent_kinds,
+            herdr_add_machine,
             herdr_open_setup,
             pty_start,
             pty_write,

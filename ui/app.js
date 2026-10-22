@@ -1,8 +1,8 @@
-// ShellQuarry UI, laid out like the Claude Code desktop app: Herdr's
-// workspaces and agents in the sidebar, the terminal in the middle, and the
-// browser as a side panel. Browser tabs are native webviews owned by Rust;
-// this page renders their tabs and address bar and reports where the panel's
-// slot is.
+// ShellQuarry UI, laid out like the Claude Code desktop app. This file runs
+// the terminal, the colours and the browser panel; herdr-ui.js adds Herdr's
+// features (sidebar, new agent, message box, menus, commands).
+// Browser tabs are native webviews owned by Rust; this page renders their tabs
+// and address bar and reports where the panel's slot is.
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -13,8 +13,8 @@ const els = {
   termPane: $('term-pane'), browserPane: $('browser-pane'), gutter: $('gutter'),
   tabs: $('tabs'), newTab: $('new-tab'), url: $('url'), loading: $('loading'), notice: $('notice'), slot: $('slot'),
   titleMain: $('title-main'), titleSub: $('title-sub'),
-  workspaces: $('workspaces'), agents: $('agents'), agentsEmpty: $('agents-empty'),
   palette: $('palette'), paletteBtn: $('palette-btn'), paletteList: $('palette-list'), paletteName: $('palette-name'),
+  toasts: $('toasts'),
 };
 
 const store = {
@@ -27,6 +27,35 @@ let state = { tabs: [], active: null, open: false, lite: false, max_tabs: 8 };
 let herdrConfig = {};
 let paletteChoice = store.get('palette') || 'herdr';
 let palette;
+
+// ---- Overlays ------------------------------------------------------------------
+// The browser webview draws above the page, so it steps aside while a menu,
+// dialog or the colour picker is open.
+
+const overlays = new Set();
+function setOverlay(name, open) {
+  if (open) overlays.add(name); else overlays.delete(name);
+  reportRect();
+}
+
+// ---- Toasts ----------------------------------------------------------------------
+
+function toast(message, { kind = 'info', action, onAction, timeout = 5000 } = {}) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = '<span class="dot"></span><span class="msg"></span>';
+  el.querySelector('.msg').textContent = message;
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = action;
+    btn.addEventListener('click', () => { el.remove(); onAction?.(); });
+    el.append(btn);
+  }
+  els.toasts.append(el);
+  while (els.toasts.children.length > 3) els.toasts.firstChild.remove();
+  setTimeout(() => el.remove(), timeout);
+}
 
 // ---- Terminal ------------------------------------------------------------------
 
@@ -61,7 +90,9 @@ term.onData((data) => {
 });
 
 // Keep the app's shortcuts away from the terminal.
-const appShortcut = (e) => e.ctrlKey && e.shiftKey && ['b', 's'].includes(e.key.toLowerCase());
+const appShortcut = (e) =>
+  (e.ctrlKey && e.shiftKey && ['b', 's'].includes(e.key.toLowerCase())) ||
+  (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k');
 term.attachCustomKeyEventHandler((e) => !appShortcut(e));
 
 listen('pty-data', (e) => term.write(e.payload));
@@ -75,7 +106,7 @@ function refit() {
   fit.fit();
   if (running) invoke('pty_resize', { cols: term.cols, rows: term.rows }).catch(() => {});
 }
-new ResizeObserver(refit).observe(els.termPane);
+new ResizeObserver(refit).observe($('term'));
 
 // ---- Colours ---------------------------------------------------------------------
 
@@ -86,6 +117,12 @@ function applyTheme() {
   els.paletteName.textContent = palette.label;
   invoke('set_page_colors', { bg: palette.card, text: palette.text, muted: palette.muted }).catch(() => {});
   if (!els.palette.hidden) renderPalette();
+}
+
+function setPalette(id) {
+  paletteChoice = id;
+  store.set('palette', id);
+  applyTheme();
 }
 
 function renderPalette() {
@@ -111,11 +148,7 @@ function renderPalette() {
       item.querySelector('.dots').append(dot);
     }
     item.querySelector('.label').textContent = choice.label;
-    item.addEventListener('click', () => {
-      paletteChoice = choice.id;
-      store.set('palette', paletteChoice);
-      applyTheme();
-    });
+    item.addEventListener('click', () => setPalette(choice.id));
     els.paletteList.append(item);
   }
 }
@@ -127,8 +160,7 @@ function setPaletteOpen(open) {
     renderPalette();
     els.paletteList.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
   }
-  // The browser webview draws above the page, so get it out of the way while the picker is open.
-  reportRect();
+  setOverlay('palette', open);
 }
 
 els.paletteBtn.addEventListener('click', (e) => { e.stopPropagation(); setPaletteOpen(els.palette.hidden); });
@@ -144,7 +176,7 @@ async function refreshHerdrTheme() {
 window.addEventListener('focus', refreshHerdrTheme);
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', refreshHerdrTheme);
 
-// ---- Sidebar: Herdr workspaces and agents ------------------------------------------
+// ---- Sidebar -------------------------------------------------------------------------
 
 function setSidebar(open) {
   document.body.classList.toggle('sidebar-hidden', !open);
@@ -152,96 +184,15 @@ function setSidebar(open) {
   store.set('sidebar', open ? '1' : '0');
   requestAnimationFrame(() => { refit(); reportRect(); });
 }
-$('toggle-sidebar').addEventListener('click', () => setSidebar(document.body.classList.contains('sidebar-hidden')));
-
-const STATUS = { working: 'Working', blocked: 'Needs you', done: 'Done', idle: 'Idle', unknown: '' };
-
-function row({ name, meta, status, num, current, onClick }) {
-  const li = document.createElement('li');
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = `row${current ? ' current' : ''}`;
-  btn.innerHTML = '<span class="dot"></span><span class="text"><span class="name"></span><span class="meta"></span></span>';
-  if (num != null) {
-    const n = document.createElement('span');
-    n.className = 'num';
-    n.textContent = num;
-    btn.prepend(n);
-  }
-  btn.querySelector('.dot').classList.add(status || 'unknown');
-  btn.querySelector('.name').textContent = name;
-  const m = btn.querySelector('.meta');
-  if (meta) m.textContent = meta; else m.remove();
-  btn.addEventListener('click', onClick);
-  li.append(btn);
-  return li;
-}
-
-async function focusInHerdr(kind, id) {
-  try { await invoke('herdr_focus', { kind, id }); } catch (err) { flash(String(err)); }
-  term.focus();
-}
-
-let overviewKey = '';
-async function refreshOverview() {
-  if (document.body.classList.contains('browser-only') || document.visibilityState === 'hidden') return;
-  const o = await invoke('herdr_overview').catch(() => null);
-  if (!o) return;
-  const key = JSON.stringify(o);
-  if (key === overviewKey) return;
-  overviewKey = key;
-
-  els.workspaces.replaceChildren(...o.workspaces.map((w) => row({
-    name: w.label || `Workspace ${w.number}`,
-    meta: `${w.tab_count} tab${w.tab_count === 1 ? '' : 's'} · ${w.pane_count} pane${w.pane_count === 1 ? '' : 's'}`,
-    status: w.agent_status, num: w.number, current: w.focused,
-    onClick: () => focusInHerdr('workspace', w.workspace_id),
-  })));
-
-  els.agents.replaceChildren(...o.agents.map((a) => {
-    const name = a.name || a.display_agent || a.agent || 'Agent';
-    const where = o.workspaces.find((w) => w.workspace_id === a.workspace_id)?.label;
-    const meta = [STATUS[a.agent_status], a.title || a.terminal_title_stripped, where].filter(Boolean).join(' · ');
-    return row({ name, meta, status: a.agent_status, onClick: () => focusInHerdr('agent', a.terminal_id) });
-  }));
-  els.agentsEmpty.hidden = o.agents.length > 0;
-  if (!o.installed) els.agentsEmpty.textContent = 'Herdr is not installed. Get it from herdr.dev to see your agents here.';
-
-  const focused = o.workspaces.find((w) => w.focused);
-  if (info.shell === 'herdr') {
-    els.titleMain.textContent = focused ? focused.label : 'Herdr';
-    const working = o.agents.filter((a) => a.agent_status === 'working').length;
-    els.titleSub.textContent = o.agents.length
-      ? `${o.agents.length} agent${o.agents.length === 1 ? '' : 's'}${working ? ` · ${working} working` : ''}`
-      : 'Herdr';
-  }
-}
-setInterval(refreshOverview, 2500);
-document.addEventListener('visibilitychange', refreshOverview);
-
-$('connect').addEventListener('click', async () => {
-  try {
-    await invoke('herdr_open_setup');
-    term.focus();
-  } catch (err) {
-    flash(`Couldn't open the setup in Herdr: ${err}`);
-  }
-});
-
-let flashTimer;
-function flash(message) {
-  const before = els.titleSub.textContent;
-  els.titleSub.textContent = message;
-  clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { els.titleSub.textContent = before; overviewKey = ''; refreshOverview(); }, 4000);
-}
+const toggleSidebar = () => setSidebar(document.body.classList.contains('sidebar-hidden'));
+$('toggle-sidebar').addEventListener('click', toggleSidebar);
 
 // ---- Browser panel -----------------------------------------------------------------
 
 let lastRect = '';
 
 function reportRect() {
-  const visible = state.open && !els.browserPane.hidden && els.palette.hidden;
+  const visible = state.open && !els.browserPane.hidden && overlays.size === 0;
   let rect = null;
   if (visible) {
     const r = els.slot.getBoundingClientRect();
@@ -316,7 +267,7 @@ listen('browser-error', (e) => showError(e.payload));
 
 let noticeTimer;
 function showError(err) {
-  if (els.browserPane.hidden) { flash(String(err)); return; }
+  if (els.browserPane.hidden) { toast(String(err), { kind: 'error' }); return; }
   els.notice.textContent = String(err);
   els.notice.hidden = false;
   clearTimeout(noticeTimer);
@@ -325,20 +276,13 @@ function showError(err) {
 }
 
 const setOpen = (open) => invoke('browser_set_open', { open }).catch(showError);
+const toggleBrowser = () => setOpen(!state.open);
 
-els.globe.addEventListener('click', () => setOpen(!state.open));
+els.globe.addEventListener('click', toggleBrowser);
 $('close-panel').addEventListener('click', () => setOpen(false));
 els.newTab.addEventListener('click', () => invoke('browser_new_tab', { url: null }).catch(showError));
-els.mode.addEventListener('click', () => invoke('browser_set_lite', { lite: !state.lite }).catch(showError));
-document.addEventListener('keydown', (e) => {
-  if (!appShortcut(e)) {
-    if (e.key === 'Escape' && !els.palette.hidden) setPaletteOpen(false);
-    return;
-  }
-  e.preventDefault();
-  if (e.key.toLowerCase() === 'b') setOpen(!state.open);
-  else setSidebar(document.body.classList.contains('sidebar-hidden'));
-});
+const toggleLite = () => invoke('browser_set_lite', { lite: !state.lite }).catch(showError);
+els.mode.addEventListener('click', toggleLite);
 
 $('address').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -373,18 +317,39 @@ els.gutter.addEventListener('pointerdown', (e) => {
   els.gutter.addEventListener('pointerup', up, { once: true });
 });
 
-// ---- Agent activity (sent by the MCP server through the control API) -----------------
+// ---- Agent activity in the browser (sent by the MCP server) -------------------------
 
 let agentTimer;
 listen('agent-activity', (e) => {
   els.agent.hidden = false;
-  const label = String(e.payload || 'browsing');
-  els.agentState.textContent = `Agent is ${label}`;
+  els.agentState.textContent = `Agent is ${String(e.payload || 'browsing')}`;
   clearTimeout(agentTimer);
   agentTimer = setTimeout(() => { els.agent.hidden = true; }, 4000);
 });
 
-// ---- Start ---------------------------------------------------------------------------
+// ---- Keyboard shortcuts ----------------------------------------------------------------
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.palette.hidden) { setPaletteOpen(false); return; }
+  if (!appShortcut(e)) return;
+  e.preventDefault();
+  const key = e.key.toLowerCase();
+  if (key === 'b') toggleBrowser();
+  else if (key === 's') toggleSidebar();
+  else if (key === 'k') window.SQ.openCommands?.();
+});
+
+// Shared with herdr-ui.js.
+window.SQ = {
+  invoke, listen, $, store, term, toast, setOverlay, refit,
+  get info() { return info; },
+  get browser() { return state; },
+  toggleBrowser, toggleSidebar, toggleLite, setPalette,
+  openColours: () => setPaletteOpen(true),
+  newBrowserTab: (url) => invoke('browser_set_open', { open: true }).then(() => invoke('browser_new_tab', { url: url || null })).catch(showError),
+};
+
+// ---- Start -------------------------------------------------------------------------------
 
 (async () => {
   info = await invoke('app_info');
@@ -404,7 +369,7 @@ listen('agent-activity', (e) => {
     fit.fit();
     startShell();
     term.focus();
-    refreshOverview();
+    window.SQ.start?.();
   }
   render();
 })();

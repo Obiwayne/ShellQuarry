@@ -1,6 +1,6 @@
 {
   "name": "shellquarry",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "The browser shell for Herdr: a terminal and a browser side panel your agents drive over MCP.",

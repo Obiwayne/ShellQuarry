@@ -4,5 +4,5 @@
   "description": "The app's own UI webview: terminal and browser-panel commands and events. The browser panel loads remote pages and gets no IPC.",
   "windows": ["main"],
   "webviews": ["ui"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }

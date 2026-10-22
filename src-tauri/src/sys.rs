@@ -53,8 +53,8 @@ fn herdr_config_path() -> Option<PathBuf> {
     }
 }
 
-/// The [theme] table from Herdr's config, as JSON (empty when there is none).
-pub fn herdr_theme() -> Value {
+/// A table from Herdr's config ("theme", "keys"), as JSON (empty when there is none).
+pub fn herdr_config_table(name: &str) -> Value {
     let Some(text) = herdr_config_path().and_then(|p| std::fs::read_to_string(p).ok()) else {
         return json!({});
     };
@@ -62,41 +62,13 @@ pub fn herdr_theme() -> Value {
         return json!({});
     };
     config
-        .get("theme")
+        .get(name)
         .and_then(|t| serde_json::to_value(t).ok())
         .unwrap_or_else(|| json!({}))
 }
 
-/// Runs the Herdr CLI and returns its JSON "result", without flashing a console window.
-pub fn herdr(args: &[&str]) -> Result<Value, String> {
-    let exe = crate::pty::find_herdr().ok_or("Herdr is not installed")?;
-    let mut cmd = std::process::Command::new(exe);
-    cmd.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    let value: Value = serde_json::from_slice(&out.stdout)
-        .map_err(|_| String::from_utf8_lossy(&out.stderr).trim().to_string())?;
-    match value.get("error") {
-        Some(err) => Err(err.get("message").and_then(Value::as_str).unwrap_or("Herdr error").to_string()),
-        None => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
-    }
-}
-
-/// Workspaces and agents for the sidebar; empty lists when Herdr isn't running.
-pub fn herdr_overview() -> Value {
-    let list = |args: &[&str], key: &str| {
-        herdr(args).ok().and_then(|r| r.get(key).cloned()).unwrap_or_else(|| json!([]))
-    };
-    json!({
-        "installed": crate::pty::find_herdr().is_some(),
-        "workspaces": list(&["workspace", "list"], "workspaces"),
-        "agents": list(&["agent", "list"], "agents"),
-    })
+pub fn herdr_theme() -> Value {
+    herdr_config_table("theme")
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {

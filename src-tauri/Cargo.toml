@@ -1,6 +1,6 @@
 [package]
 name = "shellquarry"
-version = "0.2.0"
+version = "0.3.0"
 description = "The browser shell for Herdr: a terminal and a browser side panel your agents drive over MCP."
 authors = ["Obiwayne"]
 license = "MIT"
@@ -24,6 +24,7 @@ portable-pty = "0.9"
 getrandom = "0.3"
 toml = "0.9"
 tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }

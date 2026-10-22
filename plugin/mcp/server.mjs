@@ -161,7 +161,7 @@ const fail = (err) => ({ content: [{ type: 'text', text: String(err?.message || 
 const tool = (fn) => async (args) => { try { return await fn(args ?? {}); } catch (err) { return fail(err); } };
 const tabArg = z.number().int().positive().optional().describe('Tab id from browser_tabs; the active tab when omitted');
 
-const server = new McpServer({ name: 'shellquarry', version: '0.2.0' });
+const server = new McpServer({ name: 'shellquarry', version: '0.3.0' });
 
 server.registerTool('browser_open_panel', {
   description: 'Open the ShellQuarry browser panel so the user can watch. Starts ShellQuarry if it is not running.',

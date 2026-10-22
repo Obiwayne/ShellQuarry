@@ -18,8 +18,14 @@ function has(cmd) {
   return r.status === 0;
 }
 
+// On Windows, claude and codex are .cmd shims, which need cmd.exe; quote the
+// command line ourselves rather than passing arguments with shell: true.
+const quote = (a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a);
+
 function run(cmd, args) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', shell: process.platform === 'win32' });
+  const r = process.platform === 'win32'
+    ? spawnSync('cmd.exe', ['/d', '/s', '/c', `"${[cmd, ...args].map(quote).join(' ')}"`], { encoding: 'utf8', windowsVerbatimArguments: true })
+    : spawnSync(cmd, args, { encoding: 'utf8' });
   return { ok: r.status === 0, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
 }
 

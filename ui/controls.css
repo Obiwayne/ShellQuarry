@@ -1,0 +1,186 @@
+/* Buttons, the Herdr toolbar, the message box, menus, dialogs, the command
+   palette and toasts. Uses the variables from styles.css. */
+
+/* ---- buttons -------------------------------------------------------------- */
+
+.primary-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 34px; padding: 0 14px;
+  border: 0; border-radius: calc(var(--radius) * 0.8);
+  background: var(--accent); color: var(--on-accent); font-weight: 600; cursor: pointer;
+}
+.primary-btn:hover { filter: brightness(1.08); }
+.primary-btn:disabled { opacity: 0.55; cursor: default; filter: none; }
+.sidebar > .primary-btn { margin: 0 2px 12px; }
+
+.ghost-btn {
+  height: 34px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.8);
+  background: transparent; color: var(--text); cursor: pointer;
+}
+.ghost-btn:hover { background: var(--row); }
+
+.link-btn {
+  margin-left: auto; width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1;
+}
+.link-btn:hover { background: var(--row); color: var(--text); }
+
+/* ---- sidebar additions ------------------------------------------------------ */
+
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.side-section h2 { display: flex; align-items: center; gap: 6px; }
+.count { color: var(--muted); font-weight: 400; }
+.row .badge {
+  flex: none; padding: 1px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); font-size: 11px;
+}
+.row .badge.done { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.row.selected { box-shadow: inset 2px 0 0 var(--accent); }
+.row.dim { opacity: 0.55; }
+.sub-list { list-style: none; margin: 0 0 4px 18px; padding: 0; }
+
+/* ---- terminal toolbar ---------------------------------------------------------- */
+
+.term-card { padding: 0; }
+.toolbar {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  height: 38px; padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--line-dim);
+}
+.herdr-tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.herdr-tab {
+  flex: none; height: 26px; padding: 0 10px;
+  border: 0; border-radius: calc(var(--radius) * 0.7);
+  background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+.herdr-tab:hover { background: var(--row); color: var(--text); }
+.herdr-tab.active { background: var(--sel); color: var(--text); }
+.herdr-tab .dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; vertical-align: middle; }
+.herdr-tab .dot.working { background: var(--accent); }
+.herdr-tab .dot.blocked { background: var(--red); }
+.tool-group { display: flex; gap: 2px; }
+#term { flex: 1; min-height: 0; margin: 8px 4px 4px 12px; }
+
+/* ---- message box, like Claude Code's prompt ------------------------------------- */
+
+.main { flex-direction: column; gap: 10px; position: relative; }
+.composer {
+  flex: none; display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--line); border-radius: calc(var(--radius) * 1.4);
+  background: var(--card);
+}
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.composer textarea {
+  flex: 1; min-height: 32px; max-height: 160px; resize: none;
+  padding: 6px 4px; border: 0; outline: 0; background: transparent;
+  color: var(--text); font: 13.5px/1.45 var(--font-ui);
+}
+.composer textarea::placeholder { color: var(--muted); }
+.target {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; max-width: 200px; padding: 0 10px;
+  border: 1px solid var(--line-dim); border-radius: 999px;
+  background: var(--row); color: var(--subtle); cursor: pointer;
+}
+.target span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.target .dot, .menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.working { background: var(--accent) !important; animation: pulse 1.2s ease-in-out infinite; }
+.dot.blocked { background: var(--red) !important; }
+.dot.done { background: var(--green) !important; }
+.send-btn, .stop-btn {
+  flex: none; display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 999px; cursor: pointer;
+}
+.send-btn { background: var(--accent); color: var(--on-accent); }
+.send-btn:disabled { opacity: 0.4; cursor: default; }
+.stop-btn { background: var(--sel); color: var(--text); }
+.stop-btn:hover { background: var(--line); }
+body.browser-only .composer { display: none; }
+
+/* ---- toasts ------------------------------------------------------------------- */
+
+.toasts {
+  position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  pointer-events: auto; display: flex; align-items: center; gap: 10px;
+  max-width: 460px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--sidebar); color: var(--text); box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+}
+.toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); }
+.toast.error .dot { background: var(--red); }
+.toast.good .dot { background: var(--green); }
+.toast button { margin-left: 6px; border: 0; background: transparent; color: var(--accent); cursor: pointer; font-weight: 600; }
+
+/* ---- menus, dialogs, command palette ------------------------------------------- */
+
+.menu {
+  position: fixed; z-index: 20; min-width: 190px; padding: 5px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--sidebar); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+.menu button {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border: 0; border-radius: calc(var(--radius) * 0.6);
+  background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.menu button:hover, .menu button:focus-visible { background: var(--row); outline: 0; }
+.menu button.danger { color: var(--red); }
+.menu hr { border: 0; border-top: 1px solid var(--line-dim); margin: 4px 2px; }
+.menu .menu-label { padding: 4px 10px 2px; color: var(--muted); font-size: 11.5px; }
+
+.scrim {
+  position: fixed; inset: 0; z-index: 30;
+  display: grid; place-items: center;
+  background: rgb(0 0 0 / 0.45);
+}
+.scrim.top { place-items: start center; padding-top: 12vh; }
+
+.dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 20px 20px 16px;
+  border: 1px solid var(--line); border-radius: calc(var(--radius) * 1.3);
+  background: var(--card); box-shadow: 0 24px 60px rgb(0 0 0 / 0.45);
+}
+.dialog h2 { margin: 0 0 14px; font-size: 16px; }
+.dialog p { margin: 0 0 12px; color: var(--subtle); }
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.field > span { font-size: 12px; color: var(--muted); }
+.field input, .field select {
+  height: 34px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7);
+  background: var(--bg); color: var(--text); font: 13px var(--font-ui);
+}
+.field input:focus, .field select:focus { outline: 0; border-color: var(--accent); }
+.field-row { display: flex; gap: 8px; }
+.field-row input { flex: 1; min-width: 0; }
+.check { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; color: var(--subtle); }
+.hint { font-size: 12px; color: var(--muted); }
+.dialog-error { color: var(--red) !important; }
+.dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 6px; }
+.tour-dots { display: flex; gap: 6px; margin-right: auto; align-items: center; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.tour-dots i.on { background: var(--accent); }
+
+.command-box {
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--line); border-radius: calc(var(--radius) * 1.3);
+  background: var(--card); box-shadow: 0 24px 60px rgb(0 0 0 / 0.45); overflow: hidden;
+}
+.command-box input {
+  width: 100%; height: 48px; padding: 0 16px;
+  border: 0; border-bottom: 1px solid var(--line-dim); outline: 0;
+  background: transparent; color: var(--text); font: 15px var(--font-ui);
+}
+.command-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow-y: auto; }
+.command-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: calc(var(--radius) * 0.7); cursor: pointer;
+}
+.command-list li .group { margin-left: auto; color: var(--muted); font-size: 12px; }
+.command-list li.active { background: var(--sel); }
+.command-list .none { color: var(--muted); cursor: default; }

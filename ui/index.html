@@ -6,6 +6,7 @@
   <title>ShellQuarry</title>
   <link rel="stylesheet" href="vendor/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="controls.css" />
 </head>
 <body>
   <header class="titlebar">
@@ -18,6 +19,9 @@
     </div>
     <div class="title-actions">
       <span class="agent-pill" id="agent" hidden><span class="pulse" aria-hidden="true"></span><span id="agent-state">Agent is browsing</span></span>
+      <button class="icon-btn" id="open-palette" type="button" aria-label="Commands" title="Commands (Ctrl+K)">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></svg>
+      </button>
       <button class="icon-btn" id="globe" type="button" aria-pressed="false" aria-label="Browser panel" title="Browser panel (Ctrl+Shift+B)">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" /></svg>
       </button>
@@ -28,36 +32,80 @@
     <aside class="sidebar" id="sidebar" aria-label="Herdr">
       <div class="side-brand"><span class="logo" aria-hidden="true">❯</span><span>ShellQuarry</span></div>
 
-      <section class="side-section">
-        <h2>Workspaces</h2>
-        <ul class="list" id="workspaces"></ul>
-      </section>
+      <button class="primary-btn" id="new-agent" type="button">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        New agent
+      </button>
 
-      <section class="side-section grow">
-        <h2>Agents</h2>
-        <ul class="list" id="agents"></ul>
-        <p class="empty" id="agents-empty">No agents yet. Start Claude Code or Codex in Herdr and they appear here.</p>
-      </section>
+      <div class="side-scroll">
+        <section class="side-section">
+          <h2>Agents <span class="count" id="agents-count"></span></h2>
+          <ul class="list" id="agents"></ul>
+          <p class="empty" id="agents-empty">No agents yet. Click <b>New agent</b> to start Claude Code, Codex or another agent.</p>
+        </section>
+
+        <section class="side-section">
+          <h2>Workspaces <button class="link-btn" id="new-workspace" type="button" title="New workspace">+</button></h2>
+          <ul class="list" id="workspaces"></ul>
+        </section>
+
+        <section class="side-section">
+          <h2>Machines <button class="link-btn" id="add-machine" type="button" title="Add a machine">+</button></h2>
+          <ul class="list" id="machines"></ul>
+        </section>
+      </div>
 
       <footer class="side-foot">
         <button class="foot-btn" id="connect" type="button" title="Add the ShellQuarry browser to Claude Code and Codex">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
-          <span>Connect agents</span>
+          <span>Connect agents to the browser</span>
         </button>
         <div class="foot-row">
           <button class="foot-btn" id="palette-btn" type="button" aria-haspopup="true" aria-expanded="false">
-            <span class="swatch" id="palette-swatch" aria-hidden="true"></span>
+            <span class="swatch" aria-hidden="true"></span>
             <span id="palette-name">Colours</span>
           </button>
-          <button class="chip" id="mode" type="button">full</button>
+          <button class="chip" id="mode" type="button">Full</button>
         </div>
       </footer>
     </aside>
 
     <main class="main" id="main">
       <section class="card term-card" id="term-pane" aria-label="Terminal">
+        <div class="toolbar" id="toolbar">
+          <nav class="herdr-tabs" id="herdr-tabs" aria-label="Herdr tabs"></nav>
+          <div class="tool-group">
+            <button class="icon-btn small" id="herdr-sidebar" type="button" title="Show or hide Herdr's own sidebar" aria-label="Show or hide Herdr's own sidebar">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M9 4.5v15" /><path d="M5.5 8h1.5M5.5 11h1.5" stroke-linecap="round" /></svg>
+            </button>
+            <button class="icon-btn small" id="split-right" type="button" title="Split right" aria-label="Split right">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M12 4.5v15" /></svg>
+            </button>
+            <button class="icon-btn small" id="split-down" type="button" title="Split down" aria-label="Split down">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M3.5 12h17" /></svg>
+            </button>
+            <button class="icon-btn small" id="zoom" type="button" title="Zoom pane" aria-label="Zoom pane">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+            </button>
+          </div>
+        </div>
         <div id="term"></div>
       </section>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <button class="target" id="target" type="button" aria-haspopup="true" title="Choose which agent to talk to">
+          <span class="dot" id="target-dot"></span><span id="target-name">No agent</span>
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6l6-6" /></svg>
+        </button>
+        <textarea id="message" rows="1" placeholder="Message an agent…" aria-label="Message"></textarea>
+        <button class="stop-btn" id="stop" type="button" hidden title="Stop the agent (Esc)">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+        </button>
+        <button class="send-btn" id="send" type="submit" aria-label="Send" title="Send (Enter)">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7l7 7" /></svg>
+        </button>
+      </form>
+      <div class="toasts" id="toasts" aria-live="polite"></div>
     </main>
 
     <div class="gutter" id="gutter" role="separator" aria-orientation="vertical" aria-label="Resize browser panel" hidden></div>
@@ -94,9 +142,31 @@
     </section>
   </div>
 
+  <!-- Overlays. The browser webview draws above the page, so it is hidden while any is open. -->
   <div class="popover" id="palette" role="dialog" aria-label="Colours" hidden>
     <p class="popover-title">Colours</p>
     <div class="palette-list" id="palette-list"></div>
+  </div>
+
+  <div class="menu" id="menu" role="menu" hidden></div>
+
+  <div class="scrim" id="scrim" hidden>
+    <div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <h2 id="dialog-title"></h2>
+      <div id="dialog-body"></div>
+      <p class="dialog-error" id="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="ghost-btn" id="dialog-cancel" type="button">Cancel</button>
+        <button class="primary-btn" id="dialog-ok" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrim top" id="commands" hidden>
+    <div class="command-box" role="dialog" aria-label="Commands">
+      <input id="command-input" type="text" placeholder="Type a command or search agents…" autocomplete="off" spellcheck="false" />
+      <ul class="command-list" id="command-list" role="listbox"></ul>
+    </div>
   </div>
 
   <script src="vendor/xterm.js"></script>
@@ -104,5 +174,6 @@
   <script src="themes.js"></script>
   <script src="theme.js"></script>
   <script src="app.js"></script>
+  <script src="herdr-ui.js"></script>
 </body>
 </html>

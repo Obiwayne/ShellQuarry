@@ -15,11 +15,34 @@ ShellQuarry is an independent project. It is not made by or affiliated with Herd
 
 ## What's in the window
 
-- **Sidebar:** your Herdr workspaces and agents, live, with each agent's status (working, needs you, done, idle).
-  Click one to jump to it in Herdr. At the bottom: *Connect agents*, the colour picker, and the memory mode.
-- **Terminal:** Herdr (or PowerShell when Herdr isn't installed).
+ShellQuarry puts buttons on Herdr, so you don't need to learn its keyboard shortcuts. Everything still runs in
+Herdr, and every Herdr feature is still there in the terminal.
+
+- **New agent:** pick Claude Code, Codex, Gemini, Cursor, Copilot, OpenCode or any of the 24 agents Herdr supports,
+  a project folder and, optionally, a new git branch (worktree). It starts in its own workspace. Agents that ask a
+  first-run question, like Claude Code's "trust this folder?", are flagged so you can answer in the terminal.
+- **Sidebar:** your agents with live status (working, needs you, done, idle), workspaces and machines. Click an
+  agent to jump to it; right-click for Message, Stop, Rename and Close. Right-click a workspace to rename it, add a
+  tab, start an agent there or close it.
+- **Message box:** type to the selected agent at the bottom, like in Claude Code. Enter sends, Shift+Enter adds a
+  line, the square button stops a working agent. Messages to an agent that is waiting on a question are refused
+  rather than typed into it.
+- **Alerts:** a notice when an agent needs you or finishes, with a button to jump to it.
+- **Toolbar above the terminal:** Herdr's tabs, a new-tab button, split right/down, zoom, and a button that hides
+  Herdr's own sidebar (it sends your Herdr `toggle_sidebar` keys) so only ShellQuarry's shows.
+- **Command palette (Ctrl+K):** every action, plus each agent and workspace, searchable.
 - **Browser panel:** tabs, back/forward/reload and an address bar. Opens with the globe button or **Ctrl+Shift+B**.
   **Ctrl+Shift+S** hides the sidebar. Links that open a new window become a new tab.
+- **A short tour** the first time you open it (Ctrl+K → "Show the tour" to see it again).
+
+### Other machines
+
+Herdr runs agents on your other computers over SSH. Click **+** next to Machines and enter an SSH host (anything
+`ssh <host>` accepts). A terminal window opens for `herdr machine add`, which can install Herdr there after asking.
+Each machine then appears in the sidebar with its workspaces and agents, and you can message its agents and start
+new ones there from ShellQuarry. Machines can be turned off or removed from their right-click menu; their agents
+keep running. Showing a remote agent's screen in the terminal still happens in Herdr itself (select the machine in
+Herdr's sidebar).
 
 ### Colours
 
@@ -53,7 +76,7 @@ recommended**; 8 GB works in lite mode with one or two agents.
 ## Install
 
 1. Install [Herdr](https://herdr.dev) (`powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"`).
-2. Run the ShellQuarry installer (`ShellQuarry_0.2.0_x64-setup.exe`, built with `npm run build`).
+2. Run the ShellQuarry installer (`ShellQuarry_0.3.0_x64-setup.exe` from Releases, or `npm run build`).
 3. Install the plugin (needs Node.js 20+):
 
    ```
@@ -128,6 +151,7 @@ With the app open, from `plugin/`:
 ```
 node test/try-agent.mjs      # an agent session over MCP: tabs, search, scrolling, screenshots
 node test/smoke-ui.mjs       # globe toggle and lite mode
+node test/herdr-ui.mjs <scratch-folder>   # New agent, message box, command palette (starts Claude Code, sends nothing)
 node test/pick-palette.mjs "Claude dark"
 ```
 
@@ -142,6 +166,10 @@ node test/pick-palette.mjs "Claude dark"
 - **Lite mode saves less than hoped.** WebView2 shares page processes between tabs, so unloading background tabs
   freed little memory in testing (about 300 MB for five tabs either way). The tab limit still caps growth.
 - The Herdr plugin needs Node.js, and agents need it to run the MCP server.
+- Agent screens are still drawn by each agent in the terminal; ShellQuarry adds controls around them rather than
+  redrawing conversations as chat bubbles.
+- Other machines are built on Herdr's documented `machine` and `--machine` commands but haven't been tested against a
+  real remote machine yet.
 
 ## Built with RepoQuarry
 
