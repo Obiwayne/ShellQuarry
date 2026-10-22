@@ -5,13 +5,13 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, EventTarget, Manager};
 
 pub struct Pty {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
-    _child: Box<dyn Child + Send + Sync>,
+    _killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -50,7 +50,7 @@ pub fn shell_line() -> (String, String) {
     }
 }
 
-fn command(line: &str) -> CommandBuilder {
+fn command(line: &str, herdr_config: Option<PathBuf>) -> CommandBuilder {
     // A quoted first word is a path with spaces.
     let (program, rest) = if let Some(stripped) = line.strip_prefix('"') {
         let end = stripped.find('"').unwrap_or(stripped.len());
@@ -71,6 +71,9 @@ fn command(line: &str) -> CommandBuilder {
             cmd.env_remove(key);
         }
     }
+    if let Some(path) = herdr_config {
+        cmd.env("HERDR_CONFIG_PATH", path);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "ShellQuarry");
@@ -86,13 +89,14 @@ pub fn start(app: &AppHandle, cols: u16, rows: u16) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
-    let (line, _) = shell_line();
-    let child = pair.slave.spawn_command(command(&line)).map_err(|e| format!("{line}: {e}"))?;
+    let (line, shell) = shell_line();
+    let herdr_config = (shell == "herdr").then(|| crate::sys::herdr_client_config(app)).flatten();
+    let mut child = pair.slave.spawn_command(command(&line, herdr_config)).map_err(|e| format!("{line}: {e}"))?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    let app = app.clone();
+    let reader_app = app.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 16 * 1024];
         // Bytes of a UTF-8 character split across two reads.
@@ -112,16 +116,24 @@ pub fn start(app: &AppHandle, cols: u16, rows: u16) -> Result<(), String> {
                     };
                     carry = rest;
                     if !text.is_empty() {
-                        let _ = app.emit_to(EventTarget::webview(crate::UI), "pty-data", text);
+                        let _ = reader_app.emit_to(EventTarget::webview(crate::UI), "pty-data", text);
                     }
                 }
             }
         }
+    });
+
+    // ConPTY keeps the output pipe open after the shell exits, so watch the
+    // process itself. Dropping the Pty closes the pseudoterminal and the reader.
+    let killer = child.clone_killer();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
         app.state::<PtyState>().0.lock().unwrap().take();
         let _ = app.emit_to(EventTarget::webview(crate::UI), "pty-exit", ());
     });
 
-    *slot = Some(Pty { writer, master: pair.master, _child: child });
+    *slot = Some(Pty { writer, master: pair.master, _killer: killer });
     Ok(())
 }
 

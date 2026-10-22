@@ -9,6 +9,8 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -78,6 +80,42 @@ pub fn remove_session(app: &AppHandle) {
         == Some(std::process::id() as u64);
     if ours {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Agents take turns with the browser panel: each action holds it while it runs, so
+/// two agents never hide each other's tab mid-click. A turn left by a stuck agent ends
+/// after TURN_MAX on its own.
+static TURN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+static TURN_FREED: Condvar = Condvar::new();
+const TURN_MAX: Duration = Duration::from_secs(45);
+const TURN_WAIT: Duration = Duration::from_secs(90);
+
+fn take_turn(owner: &str) -> bool {
+    let deadline = Instant::now() + TURN_WAIT;
+    let mut turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        let free = match turn.as_ref() {
+            None => true,
+            Some((who, since)) => who == owner || since.elapsed() > TURN_MAX,
+        };
+        if free {
+            *turn = Some((owner.to_string(), Instant::now()));
+            return true;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        turn = TURN_FREED.wait_timeout(turn, (deadline - now).min(Duration::from_secs(1))).unwrap_or_else(|e| e.into_inner()).0;
+    }
+}
+
+fn end_turn(owner: &str) {
+    let mut turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if turn.as_ref().is_some_and(|(who, _)| who == owner) {
+        *turn = None;
+        TURN_FREED.notify_all();
     }
 }
 
@@ -169,6 +207,16 @@ fn route(app: &AppHandle, method: &str, path: &str, args: &Value) -> Result<Valu
     let url = args.get("url").and_then(Value::as_str).map(str::to_string);
     let state = || serde_json::to_value(browser::snapshot(app)).unwrap();
     match (method, path) {
+        ("POST", "/turn") => {
+            let owner = args.get("owner").and_then(Value::as_str).filter(|o| !o.is_empty()).ok_or((400, "owner is required".to_string()))?;
+            if take_turn(owner) { Ok(json!({ "ok": true })) } else { Err((409, "another agent is using the browser".to_string())) }
+        }
+        ("POST", "/turn/end") => {
+            if let Some(owner) = args.get("owner").and_then(Value::as_str) {
+                end_turn(owner);
+            }
+            Ok(json!({ "ok": true }))
+        }
         ("GET", "/status") => Ok(json!({ "app": "shellquarry", "version": env!("CARGO_PKG_VERSION"), "browser": state() })),
         // Opens the panel (and the address, if given) and brings the window forward.
         ("POST", "/open") => {
@@ -194,7 +242,21 @@ fn route(app: &AppHandle, method: &str, path: &str, args: &Value) -> Result<Valu
         }
         ("POST", "/tabs/new") => {
             browser::set_open(app, true).map_err(bad)?;
-            let id = browser::new_tab(app, url, true).map_err(bad)?;
+            let owner = args.get("owner").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
+            // An agent's first tab takes over the blank tab the panel opens with, rather than adding another.
+            let snap = browser::snapshot(app);
+            let blank = snap.tabs.iter().find(|t| t.owner.is_none() && t.url.is_empty()).map(|t| t.id);
+            let first = args.get("first").and_then(Value::as_bool).unwrap_or(false);
+            let id = match (owner, blank, url.is_none() && first) {
+                (Some(_), Some(id), true) => {
+                    browser::select_tab(app, id).map_err(bad)?;
+                    id
+                }
+                _ => browser::new_tab(app, url, true).map_err(bad)?,
+            };
+            if let Some(owner) = owner {
+                browser::set_owner(app, id, owner);
+            }
             Ok(json!({ "tab": id, "browser": state() }))
         }
         ("POST", "/tabs/select") => {

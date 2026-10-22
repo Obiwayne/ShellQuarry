@@ -175,7 +175,17 @@
         d.className = `dot ${t.agent_status}`;
         b.append(d);
       }
+      if (local.tabs.length > 1) {
+        const x = document.createElement('span');
+        x.className = 'tab-close';
+        x.textContent = '×';
+        x.title = 'Close tab';
+        x.setAttribute('role', 'button');
+        x.addEventListener('click', (e) => { e.stopPropagation(); closeTab(t); });
+        b.append(x);
+      }
       b.addEventListener('click', () => run(herdr(['tab', 'focus', t.tab_id])).then(() => term.focus()));
+      b.addEventListener('auxclick', (e) => { if (e.button === 1 && local.tabs.length > 1) closeTab(t); });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); tabMenu(t, e.clientX, e.clientY); });
       return b;
     }));
@@ -183,8 +193,8 @@
     add.type = 'button';
     add.className = 'herdr-tab';
     add.textContent = '+';
-    add.title = 'New tab';
-    add.addEventListener('click', newHerdrTab);
+    add.title = 'New tab: a terminal or an agent';
+    add.addEventListener('click', (e) => newTabMenu(...menuPointFor(e)));
     if (local.running) els.herdrTabs.append(add);
   }
 
@@ -205,6 +215,7 @@
   // ---- Alerts: tell the user when an agent needs them or finishes ------------------
 
   function alertChanges() {
+    sendPendingHandoffs();
     for (const { agent: a, machine, machineLabel } of allAgents()) {
       const key = `${machine || ''}|${a.pane_id}`;
       const before = seen.get(key);
@@ -212,6 +223,7 @@
       if (!before) continue;
       const entry = { agent: a, machine, machineLabel };
       const where = machine ? ` on ${machineLabel}` : '';
+      if (before.status === 'working' && a.agent_status !== 'working') checkUsage(entry);
       if (a.agent_status === 'blocked' && announced.delete(`${machine || ''}|${a.name}`)) continue;
       if (a.agent_status === 'blocked' && before.status !== 'blocked') {
         toast(`${nameOf(a)}${where} needs you`, { kind: 'error', action: 'Show', onAction: () => { select(entry); focusAgent(entry); }, timeout: 10000 });
@@ -243,7 +255,13 @@
       }
     } catch { /* Herdr not reachable right now */ }
     refreshing = false;
+    // Usage changes slowly; check it every 30 s, and as soon as the agents are known.
+    if (Date.now() - usageCheckedAt > 30000) {
+      usageCheckedAt = Date.now();
+      refreshUsage();
+    }
   }
+  let usageCheckedAt = 0;
 
   async function refreshMachines() {
     if (document.visibilityState === 'hidden') return;
@@ -323,6 +341,52 @@
     term.focus();
   }
 
+  /** Closing a tab stops what runs in it, so ask first when an agent is there. */
+  function closeTab(t) {
+    const close = () => herdr(['tab', 'close', t.tab_id]);
+    if (t.agent_status && t.agent_status !== 'none') {
+      confirmDialog(`Close ${t.label && t.label !== String(t.number) ? t.label : `Tab ${t.number}`}?`, 'The agent in it stops.', 'Close', close);
+    } else {
+      run(close());
+    }
+  }
+
+  /** "+" asks what the new tab is for: a plain terminal, or one of the installed agents. */
+  async function newTabMenu(x, y) {
+    if (!kinds.length) kinds = await invoke('herdr_agent_kinds').catch(() => []);
+    openMenu(x, y, [
+      { heading: 'New tab' },
+      { label: 'Terminal', run: newHerdrTab },
+      ...kinds.filter((k) => k.installed).map((k) => ({ label: k.label, run: () => agentTab(k.kind) })),
+      '-',
+      { label: 'Other agent…', run: () => newAgentDialog() },
+    ]);
+  }
+
+  /** A new tab in the current workspace with an agent already started in it. */
+  async function agentTab(kind) {
+    const ws = local.workspaces.find((w) => w.focused);
+    const name = uniqueName(kind);
+    try {
+      const paneId = findPaneId(await herdr(['tab', 'create', ...(ws ? ['--workspace', ws.workspace_id] : []), '--label', name, '--focus']));
+      if (!paneId) throw new Error('Herdr did not say which pane to use');
+      toast(`Starting ${kindLabel(kind)}…`);
+      const waiting = await invoke('herdr_start_agent', { machine: null, name, kind, pane: paneId });
+      selected = { machine: null, target: name, name };
+      store.set('selectedAgent', JSON.stringify(selected));
+      await refresh();
+      if (waiting) {
+        announced.add(`|${name}`);
+        toast(`${name} is asking a question in the terminal. Answer it there to get started.`, { timeout: 9000 });
+      } else {
+        toast(`${name} is ready`, { kind: 'good' });
+      }
+      term.focus();
+    } catch (err) {
+      toast(String(err?.message || err), { kind: 'error', timeout: 7000 });
+    }
+  }
+
   const split = (direction) => run(herdr(['pane', 'split', '--current', '--direction', direction, '--focus'])).then(() => term.focus());
   const zoom = () => run(herdr(['pane', 'zoom'])).then(() => term.focus());
   /** The bytes a terminal sends for a Herdr key such as "ctrl+b" or "prefix+b". */
@@ -356,6 +420,16 @@
     term.focus();
   };
   $('herdr-sidebar').addEventListener('click', toggleHerdrSidebar);
+
+  const toggleHerdrChrome = () => {
+    const on = !window.SQ.info.herdr_chrome;
+    invoke('set_herdr_chrome', { on })
+      .then(() => {
+        window.SQ.info.herdr_chrome = on;
+        toast(`Herdr's own tab row and rail ${on ? 'come back' : 'hide'} next time you open ShellQuarry.`);
+      })
+      .catch((err) => toast(String(err), { kind: 'error' }));
+  };
   $('split-right').addEventListener('click', () => split('right'));
   $('split-down').addEventListener('click', () => split('down'));
   $('zoom').addEventListener('click', zoom);
@@ -413,6 +487,7 @@
       { label: 'Message', run: () => { select(entry); els.message.focus(); } },
       ...(machine ? [] : [{ label: 'Show in terminal', run: () => focusAgent(entry) }]),
       ...(a.agent_status === 'working' ? [{ label: 'Stop', run: () => run(herdr(['agent', 'send-keys', target, 'esc'], machine), 'Asked the agent to stop') }] : []),
+      ...(a.workspace_id ? [{ label: 'Continue in another agent…', run: () => switchAgentDialog(entry) }] : []),
       { label: 'Rename…', run: () => promptDialog('Rename agent', 'Name', a.name || '', (name) => herdr(['agent', 'rename', target, name], machine), 'a-z, 0-9, - and _') },
       '-',
       { label: 'Close agent', danger: true, run: () => confirmDialog(`Close ${nameOf(a)}?`, 'This closes its pane and stops the agent.', 'Close', () => herdr(['pane', 'close', a.pane_id], machine)) },
@@ -434,7 +509,7 @@
   function tabMenu(t, x, y) {
     openMenu(x, y, [
       { label: 'Rename…', run: () => promptDialog('Rename tab', 'Name', t.label, (label) => herdr(['tab', 'rename', t.tab_id, label])) },
-      { label: 'Close tab', danger: true, run: () => run(herdr(['tab', 'close', t.tab_id])) },
+      { label: 'Close tab', danger: true, run: () => closeTab(t) },
     ]);
   }
 
@@ -543,13 +618,9 @@
     for (let n = 1; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
   }
 
-  async function newAgentDialog({ machine = null, inWorkspace = null } = {}) {
-    if (!kinds.length) kinds = await invoke('herdr_agent_kinds').catch(() => []);
-    const body = document.createElement('div');
-
+  /** A drop-down of agent kinds, the ones installed on this PC first. */
+  function kindPicker(value) {
     const kind = document.createElement('select');
-    const installed = kinds.filter((k) => k.installed);
-    const others = kinds.filter((k) => !k.installed);
     const group = (label, list) => {
       if (!list.length) return;
       const g = document.createElement('optgroup');
@@ -562,9 +633,170 @@
       }
       kind.append(g);
     };
-    group('Installed on this PC', installed);
-    group('Not installed on this PC', others);
-    kind.value = store.get('lastKind') || installed[0]?.kind || 'claude';
+    group('Installed on this PC', kinds.filter((k) => k.installed));
+    group('Not installed on this PC', kinds.filter((k) => !k.installed));
+    kind.value = value;
+    return kind;
+  }
+
+  // ---- Continue in another agent ---------------------------------------------------
+  // Like T3 Code's provider switch: the new agent starts in the same folder and gets the
+  // conversation so far (from the old agent's saved transcript), so the work carries on.
+
+  /** Handoffs waiting for their agent to finish a first-run question: key -> message. */
+  const pendingHandoffs = new Map();
+
+  async function switchAgentDialog(entry) {
+    if (!kinds.length) kinds = await invoke('herdr_agent_kinds').catch(() => []);
+    const { agent: a, machine } = entry;
+    const installed = kinds.filter((k) => k.installed && k.kind !== a.agent).map((k) => k.kind);
+    const preferred = a.agent === 'codex' ? 'claude' : 'codex';
+    const kind = kindPicker(installed.includes(preferred) ? preferred : installed[0] || preferred);
+    const name = input(uniqueName(kind.value));
+    let nameTouched = false;
+    name.addEventListener('input', () => { nameTouched = true; });
+    kind.addEventListener('change', () => { if (!nameTouched) name.value = uniqueName(kind.value); });
+    const request = document.createElement('textarea');
+    request.rows = 2;
+    request.placeholder = 'Anything to add? (optional)';
+
+    const from = nameOf(a);
+    const body = document.createElement('div');
+    const p = document.createElement('p');
+    p.textContent = `Starts it in a new tab in ${a.cwd || 'the same folder'} with ${from}'s conversation so far, so it carries on where ${from} stopped. ${from} keeps running.`;
+    body.append(p, field('Continue in', kind), field('Name', name, 'Lowercase letters, numbers, - and _.'), field('Message', request));
+
+    openDialog({
+      title: `Continue ${from}'s work`,
+      body,
+      ok: 'Continue',
+      submit: async () => {
+        if (!machine && kinds.length && !kinds.find((k) => k.kind === kind.value)?.installed) {
+          throw new Error(`${kindLabel(kind.value)} isn't installed on this PC. Install it first, then try again.`);
+        }
+        els.dialogOk.textContent = `Starting ${kindLabel(kind.value)}…`;
+        let started;
+        try {
+          started = await invoke('herdr_switch_agent', {
+            machine, from: targetOf(a), fromKind: a.agent || '', workspace: a.workspace_id, cwd: a.cwd || '',
+            kind: kind.value, name: name.value.trim(), request: request.value.trim() || null,
+          });
+        } finally {
+          els.dialogOk.textContent = 'Continue';
+        }
+        const agentName = name.value.trim();
+        selected = { machine, target: agentName, name: agentName };
+        store.set('selectedAgent', JSON.stringify(selected));
+        await refresh();
+        const what = started.source === 'conversation' ? 'conversation' : 'terminal';
+        if (started.waiting) {
+          pendingHandoffs.set(`${machine || ''}|${agentName}`, started.prompt);
+          announced.add(`${machine || ''}|${agentName}`);
+          toast(`${agentName} is asking a question first. Answer it in the terminal and ShellQuarry hands over the ${what} straight after.`, { timeout: 10000 });
+          if (!machine) run(herdr(['agent', 'focus', agentName])).then(() => term.focus());
+        } else {
+          toast(`${agentName} has ${from}'s ${what} and is carrying on`, { kind: 'good' });
+        }
+      },
+    });
+  }
+
+  /** Sends a waiting handoff once its agent is past its first-run question. */
+  function sendPendingHandoffs() {
+    for (const { agent: a, machine } of allAgents()) {
+      const key = `${machine || ''}|${a.name}`;
+      const prompt = pendingHandoffs.get(key);
+      if (!prompt || a.agent_status !== 'idle') continue;
+      pendingHandoffs.delete(key);
+      run(herdr(['agent', 'prompt', a.name, prompt], machine), `Handed the work to ${a.name}`);
+    }
+  }
+
+  // ---- Plan usage: 5-hour and weekly limits for Claude Code and Codex -----------------
+
+  const USAGE_NAMES = { claude: 'Claude Code', codex: 'Codex' };
+  const offeredNearLimit = new Set();
+
+  function untilText(resetsAt) {
+    if (!resetsAt) return '';
+    const mins = Math.max(0, Math.round((resetsAt * 1000 - Date.now()) / 60000));
+    if (mins < 60) return `resets in ${mins} min`;
+    if (mins < 48 * 60) return `resets in ${Math.round(mins / 60)} h`;
+    return `resets in ${Math.round(mins / 1440)} days`;
+  }
+
+  function meter(label, w) {
+    const span = document.createElement('span');
+    span.className = 'usage-meter';
+    const used = Math.round(w.used);
+    span.innerHTML = `<span></span><span class="usage-bar${used >= 90 ? ' high' : used >= 70 ? ' warn' : ''}"><i></i></span><b></b>`;
+    span.children[0].textContent = label;
+    span.querySelector('i').style.width = `${used}%`;
+    span.querySelector('b').textContent = `${used}%`;
+    return span;
+  }
+
+  async function refreshUsage() {
+    const list = await invoke('usage_snapshot').catch(() => []);
+    const running = new Set(allAgents().map(({ agent }) => agent.agent));
+    // A window that has reset since the numbers were saved is back to 0%; numbers more than a
+    // day old aren't shown at all, so the strip never shows stale figures.
+    const now = Date.now() / 1000;
+    const fresh = (w) => (w && w.resets_at && w.resets_at < now ? { ...w, used: 0, resets_at: null } : w);
+    const shown = list
+      .filter((u) => running.has(u.kind) && (!u.saved_at || now - u.saved_at < 86400))
+      .map((u) => ({ ...u, five_hour: fresh(u.five_hour), weekly: fresh(u.weekly) }))
+      .filter((u) => u.five_hour || u.weekly);
+    $('usage').replaceChildren(...shown.map((u) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'usage-chip';
+      const name = document.createElement('span');
+      name.textContent = USAGE_NAMES[u.kind] || u.kind;
+      chip.append(name);
+      if (u.five_hour) chip.append(meter('5h', u.five_hour));
+      if (u.weekly) chip.append(meter('Week', u.weekly));
+      chip.title = [
+        u.five_hour && `5-hour limit: ${Math.round(u.five_hour.used)}% used, ${untilText(u.five_hour.resets_at)}`,
+        u.weekly && `Weekly limit: ${Math.round(u.weekly.used)}% used, ${untilText(u.weekly.resets_at)}`,
+        'Click to move this agent\'s work to another agent',
+      ].filter(Boolean).join('\n');
+      chip.addEventListener('click', () => {
+        const entry = allAgents().find((e) => e.agent.agent === u.kind && !e.machine && targetOf(e.agent) === selected?.target)
+          || allAgents().find((e) => e.agent.agent === u.kind && !e.machine);
+        if (entry) switchAgentDialog(entry);
+      });
+      return chip;
+    }));
+    // Nearly out: offer to carry on in the other agent before the limit stops the work.
+    for (const u of shown) {
+      if (!u.five_hour || u.five_hour.used < 90 || offeredNearLimit.has(u.kind)) continue;
+      const entry = allAgents().find((e) => e.agent.agent === u.kind && !e.machine && e.agent.agent_status === 'working');
+      if (!entry) continue;
+      offeredNearLimit.add(u.kind);
+      const other = u.kind === 'codex' ? 'Claude Code' : 'Codex';
+      toast(`${USAGE_NAMES[u.kind]} has used ${Math.round(u.five_hour.used)}% of its 5-hour limit`, { action: `Continue in ${other}…`, onAction: () => switchAgentDialog(entry), timeout: 30000 });
+    }
+  }
+
+  /** Agents already offered a switch because they ran out of usage. */
+  const offeredSwitch = new Set();
+
+  async function checkUsage(entry) {
+    const { agent: a, machine } = entry;
+    const key = `${machine || ''}|${a.pane_id}`;
+    if (offeredSwitch.has(key)) return;
+    if (!(await invoke('herdr_out_of_usage', { machine, target: targetOf(a) }).catch(() => false))) return;
+    offeredSwitch.add(key);
+    const other = a.agent === 'codex' ? 'Claude Code' : 'Codex';
+    toast(`${nameOf(a)} has run out of usage`, { kind: 'error', action: `Continue in ${other}…`, onAction: () => switchAgentDialog(entry), timeout: 30000 });
+  }
+
+  async function newAgentDialog({ machine = null, inWorkspace = null } = {}) {
+    if (!kinds.length) kinds = await invoke('herdr_agent_kinds').catch(() => []);
+    const body = document.createElement('div');
+
+    const kind = kindPicker(store.get('lastKind') || kinds.find((k) => k.installed)?.kind || 'claude');
 
     const where = document.createElement('select');
     const here = document.createElement('option');
@@ -639,12 +871,7 @@
             await herdr(['workspace', 'focus', inWorkspace.workspace_id]);
             const paneId = findPaneId(await herdr(['pane', 'split', '--current', '--direction', 'right', '--focus']));
             if (!paneId) throw new Error('Herdr did not say which pane to use');
-            try {
-              await herdr(['agent', 'start', name.value.trim(), '--kind', kind.value, '--pane', paneId, '--timeout', '60000'], m);
-            } catch (err) {
-              if (!/blocked during startup|not ready/i.test(String(err))) throw err;
-              waiting = true;
-            }
+            waiting = await invoke('herdr_start_agent', { machine: m, name: name.value.trim(), kind: kind.value, pane: paneId });
           } else {
             if (!folder.value.trim()) throw new Error('Pick a project folder.');
             store.set('lastFolder', folder.value.trim());
@@ -756,10 +983,12 @@
       { label: 'New agent…', group: 'Herdr', run: () => newAgentDialog() },
       { label: 'New workspace…', group: 'Herdr', run: newWorkspaceDialog },
       { label: 'New tab', group: 'Herdr', run: newHerdrTab },
+      ...kinds.filter((k) => k.installed).map((k) => ({ label: `New tab with ${k.label}`, group: 'Herdr', run: () => agentTab(k.kind) })),
       { label: 'Split right', group: 'Herdr', run: () => split('right') },
       { label: 'Split down', group: 'Herdr', run: () => split('down') },
       { label: 'Zoom pane', group: 'Herdr', run: zoom },
       { label: "Show or hide Herdr's sidebar", group: 'Herdr', run: toggleHerdrSidebar },
+      { label: SQ.info.herdr_chrome ? "Hide Herdr's own tab row and rail" : "Show Herdr's own tab row and rail", group: 'Herdr', run: toggleHerdrChrome },
       { label: 'Add a machine…', group: 'Machines', run: addMachineDialog },
       { label: 'Refresh machines', group: 'Machines', run: refreshMachines },
       { label: SQ.browser.open ? 'Close browser' : 'Open browser', group: 'Browser', run: SQ.toggleBrowser },

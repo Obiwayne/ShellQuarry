@@ -33,9 +33,23 @@ Herdr, and every Herdr feature is still there in the terminal.
   line, the square button stops a working agent. Messages to an agent that is waiting on a question are refused
   rather than typed into it.
 - **Alerts:** a notice when an agent needs you or finishes, with a button to jump to it.
-- **Toolbar above the terminal:** Herdr's tabs, a new-tab button, split right/down, zoom, and a button that hides
-  Herdr's own sidebar (it sends your Herdr `toggle_sidebar` keys) so only ShellQuarry's shows.
+- **Toolbar above the terminal:** Herdr's tabs, a new-tab button, split right/down, zoom, and a button that shows
+  or hides Herdr's own sidebar (it sends your Herdr `toggle_sidebar` keys).
+- **A clean terminal:** Herdr in ShellQuarry starts with its sidebar rail hidden and its own tab row clipped out of
+  view, because ShellQuarry's sidebar and toolbar already show them. Your own Herdr config is not changed: ShellQuarry
+  gives its Herdr a copy with those settings (`HERDR_CONFIG_PATH`). Ctrl+K → "Show Herdr's own tab row and rail" turns
+  it off.
 - **Command palette (Ctrl+K):** every action, plus each agent and workspace, searchable.
+- **Tabs:** the tab row above the terminal is Herdr's tabs. **+** asks what the tab is for: a plain terminal or one
+  of your installed agents, started in it. Close a tab with its **×** or a middle-click.
+- **Continue in another agent:** right-click an agent → **Continue in another agent…** (or click the usage strip).
+  The new agent (Codex when the old one is Claude Code, say) starts in a new tab in the same folder with the
+  conversation so far, read from the old agent's saved transcript, and carries on. This is how T3 Code switches
+  providers. When an agent shows a usage-limit message, or Claude Code passes 90% of its 5-hour limit, ShellQuarry
+  offers it.
+- **Plan usage:** the title bar shows how much of the 5-hour and weekly limits Claude Code and Codex have used. Codex
+  saves these numbers itself. Claude Code reports them to ShellQuarry from agents started here (ShellQuarry is their
+  status line for that run, and still runs your own status line if you have one).
 - **Browser panel:** tabs, back/forward/reload and an address bar. Opens with the globe button or **Ctrl+Shift+B**.
   **Ctrl+Shift+S** hides the sidebar. Links that open a new window become a new tab.
 - **A short tour** the first time you open it (Ctrl+K → "Show the tour" to see it again).
@@ -152,8 +166,13 @@ The popup shows the plugin folder's path.
 `browser_close_tab`, `browser_close_panel`.
 
 Snapshots list each page's clickable elements with refs (`[e12] button "Sign in"`); agents pass a ref to
-`browser_click` or `browser_type`. Tools act on the active tab unless given a `tab` id. If ShellQuarry isn't running,
-the first tool call starts it as a browser window.
+`browser_click` or `browser_type`. Each agent gets its own tab, labelled with its name, and its tools act on that tab
+unless given a `tab` id. Agents using the browser at the same time take turns with the panel, so they never fight over
+which tab shows. If ShellQuarry isn't running, the first tool call starts it as a browser window.
+
+Claude Code agents started from ShellQuarry are connected to the browser automatically (ShellQuarry passes
+`--mcp-config` for that run; your own settings aren't changed). For other agents, or ones you start yourself, use
+**Connect agents to the browser** once.
 
 ## How it works
 

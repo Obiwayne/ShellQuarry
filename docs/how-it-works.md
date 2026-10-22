@@ -49,6 +49,15 @@ character is never cut in half, and sent to xterm.js as events; keystrokes come 
 own `HERDR_*` variables are removed from the child's environment so a ShellQuarry launched by the Herdr plugin can
 still start its own Herdr client.
 
+Herdr gets a copy of the user's config (`herdr-config.toml` in the app's data folder, passed as
+`HERDR_CONFIG_PATH`) with `sidebar_start_collapsed`, `sidebar_collapsed_mode = "hidden"`,
+`pane_outer_borders = false`, the tab row always on top and no narrow layout, so it doesn't repeat what the
+sidebar and toolbar show. Herdr has no setting to hide its tab row once there are two tabs, so the terminal gets one
+extra row and that top line is clipped out of view. The user's own file is never written. A separate thread waits on the shell process itself, because ConPTY keeps
+the output pipe open after the child exits; that is what shows "press Enter to start it again". Input is forwarded
+while the shell is still starting, since Herdr asks the terminal questions at startup and waits for the answers.
+xterm.js draws with its WebGL renderer, falling back to the DOM renderer when WebGL isn't available.
+
 ## Herdr's features as buttons
 
 `herdr.rs` runs the Herdr CLI (`herdr [--machine M] <noun> <verb> …`) with a timeout and returns its JSON. Only an

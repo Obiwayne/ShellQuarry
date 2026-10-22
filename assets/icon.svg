@@ -1,11 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="#1e1e2e"/>
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#45475a" stroke-width="24"/>
-  <path d="M232 330 L412 470 L232 610" fill="none" stroke="#89b4fa" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="232" y="700" width="220" height="70" rx="35" fill="#45475a"/>
-  <g fill="none" stroke="#cba6f7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="690" cy="560" r="170"/>
-    <path d="M520 560 H860"/>
-    <path d="M690 390 C600 470 600 650 690 730 C780 650 780 470 690 390"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2a27"/>
+      <stop offset="1" stop-color="#1a1918"/>
+    </linearGradient>
+    <radialGradient id="shell" cx="0.42" cy="0.36" r="0.75">
+      <stop offset="0" stop-color="#f09a76"/>
+      <stop offset="0.55" stop-color="#d97757"/>
+      <stop offset="1" stop-color="#a9502f"/>
+    </radialGradient>
+    <clipPath id="rim"><ellipse cx="512" cy="540" rx="250" ry="282"/></clipPath>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="url(#bg)"/>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
+
+  <!-- head, flippers and tail -->
+  <g fill="#8fb98b">
+    <ellipse cx="512" cy="214" rx="78" ry="92"/>
+    <ellipse cx="300" cy="352" rx="104" ry="58" transform="rotate(-38 300 352)"/>
+    <ellipse cx="724" cy="352" rx="104" ry="58" transform="rotate(38 724 352)"/>
+    <ellipse cx="312" cy="712" rx="92" ry="54" transform="rotate(36 312 712)"/>
+    <ellipse cx="712" cy="712" rx="92" ry="54" transform="rotate(-36 712 712)"/>
+    <path d="M482 800 L512 872 L542 800 Z"/>
   </g>
+  <g fill="#1a1918">
+    <circle cx="482" cy="196" r="13"/>
+    <circle cx="542" cy="196" r="13"/>
+  </g>
+
+  <!-- shell -->
+  <ellipse cx="512" cy="540" rx="250" ry="282" fill="url(#shell)"/>
+  <g fill="none" stroke="#7a3520" stroke-opacity="0.55" stroke-width="18" stroke-linejoin="round" clip-path="url(#rim)">
+    <path d="M512 410 L602 462 L602 566 L512 618 L422 566 L422 462 Z"/>
+    <path d="M512 410 L512 262"/>
+    <path d="M602 462 L780 378"/>
+    <path d="M422 462 L244 378"/>
+    <path d="M602 566 L780 660"/>
+    <path d="M422 566 L244 660"/>
+    <path d="M512 618 L512 820"/>
+  </g>
+  <ellipse cx="512" cy="540" rx="250" ry="282" fill="none" stroke="#7a3520" stroke-opacity="0.6" stroke-width="18"/>
+
+  <!-- the prompt in the middle scute -->
+  <path d="M478 482 L540 514 L478 546" fill="none" stroke="#fff6ef" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

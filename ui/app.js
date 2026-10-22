@@ -61,22 +61,41 @@ function toast(message, { kind = 'info', action, onAction, timeout = 5000 } = {}
 
 const term = new Terminal({
   fontFamily: '"Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace',
-  fontSize: 13,
-  lineHeight: 1.15,
+  fontSize: 13.5,
+  fontWeight: 400,
+  fontWeightBold: 600,
+  lineHeight: 1.25,
+  letterSpacing: 0.2,
   cursorBlink: true,
+  cursorStyle: 'bar',
+  cursorInactiveStyle: 'none',
+  minimumContrastRatio: 4.5,
+  smoothScrollDuration: 80,
   scrollback: 5000,
   allowProposedApi: true,
 });
 const fit = new FitAddon.FitAddon();
 term.loadAddon(fit);
 
+// The GPU renderer draws sharper, evenly weighted text; the default DOM renderer is the fallback.
+function useWebgl() {
+  try {
+    const gl = new WebglAddon.WebglAddon();
+    gl.onContextLoss(() => gl.dispose());
+    term.loadAddon(gl);
+  } catch { /* no WebGL: keep the DOM renderer */ }
+}
+
 let running = false;
 
 async function startShell() {
+  // Forward input while starting too: Herdr asks the terminal questions as it
+  // starts and waits for xterm.js's answers, which arrive before pty_start returns.
+  running = true;
   try {
     await invoke('pty_start', { cols: term.cols, rows: term.rows });
-    running = true;
   } catch (err) {
+    running = false;
     term.write(`\r\n\x1b[31mCould not start ${info.shell || 'the shell'}: ${err}\x1b[0m\r\n`);
   }
 }
@@ -101,9 +120,19 @@ listen('pty-exit', () => {
   term.write(`\r\n\x1b[90m[${info.shell || 'shell'} exited — press Enter to start it again]\x1b[0m\r\n`);
 });
 
+// Herdr in clean mode always draws its tab row on the first line; ShellQuarry's toolbar
+// shows the tabs, so the terminal gets one extra row and that line is clipped out of view.
+const clipTabRow = () => info?.shell === 'herdr' && !info?.herdr_chrome;
+
 function refit() {
   if (document.body.classList.contains('browser-only')) return;
   fit.fit();
+  if (clipTabRow()) {
+    term.resize(term.cols, term.rows + 1);
+    const screen = term.element?.querySelector('.xterm-screen');
+    const row = screen ? screen.offsetHeight / term.rows : 0;
+    term.element.style.marginTop = `${-row}px`;
+  }
   if (running) invoke('pty_resize', { cols: term.cols, rows: term.rows }).catch(() => {});
 }
 new ResizeObserver(refit).observe($('term'));
@@ -222,6 +251,13 @@ function renderTabs() {
     const label = tab.title && tab.title !== 'New tab' ? tab.title : (tab.url ? hostOf(tab.url) : 'New tab');
     btn.innerHTML = '<span class="status"></span><span class="title"></span><span class="x" role="button" aria-label="Close tab">×</span>';
     btn.querySelector('.title').textContent = label;
+    if (tab.owner) {
+      const owner = document.createElement('span');
+      owner.className = 'owner';
+      owner.textContent = tab.owner;
+      owner.title = `${tab.owner} is using this tab`;
+      btn.querySelector('.title').before(owner);
+    }
     const status = btn.querySelector('.status');
     if (tab.loading) status.className = 'busy';
     else if (!tab.alive && state.lite && tab.id !== state.active) { status.className = 'asleep'; status.title = 'Unloaded to save memory'; }
@@ -366,7 +402,8 @@ window.SQ = {
   } else {
     els.titleMain.textContent = info.shell === 'herdr' ? 'Herdr' : info.shell;
     term.open($('term'));
-    fit.fit();
+    useWebgl();
+    refit();
     startShell();
     term.focus();
     window.SQ.start?.();

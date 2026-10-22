@@ -95,10 +95,15 @@ fn run_inner(machine: Option<&str>, args: &[&str], timeout: Duration) -> Result<
     child.stdout.take().map(|mut s| s.read_to_end(&mut out));
     child.stderr.take().map(|mut s| s.read_to_string(&mut err));
     // Herdr prints errors as JSON on stderr; pass that through so callers can read the code.
-    let value: Value = serde_json::from_slice(&out).map_err(|_| {
-        let msg = err.trim();
-        if msg.is_empty() { "Herdr returned nothing".to_string() } else { msg.lines().last().unwrap_or(msg).to_string() }
-    })?;
+    let value: Value = match serde_json::from_slice(&out) {
+        Ok(v) => v,
+        // Commands with --format text print plain text.
+        Err(_) if err.trim().is_empty() && !out.is_empty() => return Ok(Value::String(String::from_utf8_lossy(&out).into_owned())),
+        Err(_) => {
+            let msg = err.trim();
+            return Err(if msg.is_empty() { "Herdr returned nothing".to_string() } else { msg.lines().last().unwrap_or(msg).to_string() });
+        }
+    };
     if value.get("error").is_some() {
         return Err(value.to_string());
     }
@@ -206,6 +211,7 @@ pub fn new_agent(
     cwd: &str,
     worktree: bool,
     branch: Option<&str>,
+    data_dir: &std::path::Path,
 ) -> Result<Value, String> {
     if !AGENT_KINDS.iter().any(|(k, _, _)| *k == kind) {
         return Err(format!("unknown agent kind {kind}"));
@@ -223,12 +229,129 @@ pub fn new_agent(
         run(machine, &["workspace", "create", "--cwd", cwd, "--label", name, "--focus"], Duration::from_secs(20))?
     };
     let pane = first_pane_id(&created).ok_or("Herdr did not say which pane to use")?;
-    let start = ["agent", "start", name, "--kind", kind, "--pane", &pane, "--timeout", "60000"];
-    match run_coded(machine, &start, Duration::from_secs(90)) {
-        Ok(_) => Ok(json!({ "name": name, "pane": pane, "waiting": false })),
-        // The agent started but asks a question first, such as whether to trust the folder.
-        Err((code, _)) if code == "agent_not_ready" => Ok(json!({ "name": name, "pane": pane, "waiting": true })),
+    // Waiting means it asks a question first, such as whether to trust the folder.
+    let waiting = start_agent(machine, name, kind, &pane, data_dir)?;
+    Ok(json!({ "name": name, "pane": pane, "waiting": waiting }))
+}
+
+/// The browser's MCP server in the installed ShellQuarry Herdr plugin.
+fn mcp_server() -> Option<std::path::PathBuf> {
+    let list = run(None, &["plugin", "list", "--json"], Duration::from_secs(10)).ok()?;
+    let plugin = list.get("plugins")?.as_array()?.iter().find(|p| p.get("plugin_id").and_then(Value::as_str) == Some("shellquarry.browser"))?;
+    let root = plugin.get("plugin_root").or_else(|| plugin.get("manifest_path"))?.as_str()?;
+    let root = std::path::Path::new(root.trim_start_matches(r"\\?\"));
+    let root = if root.extension().is_some() { root.parent()? } else { root };
+    let server = root.join("mcp").join("server.mjs");
+    server.is_file().then_some(server)
+}
+
+/// Extra launch arguments, for this run only (the agent's own config is left alone):
+/// Claude Code gets the browser (--mcp-config) and a status line that reports its plan
+/// usage to ShellQuarry (--settings, see usage.rs). Other agents use "Connect agents to the browser".
+fn launch_args(kind: &str, data_dir: &std::path::Path) -> Vec<String> {
+    if kind != "claude" {
+        return vec![];
+    }
+    let mut args = Vec::new();
+    if let Some(server) = mcp_server() {
+        let config = json!({ "mcpServers": { "shellquarry": { "command": "node", "args": [server] } } });
+        let path = data_dir.join("agent-mcp.json");
+        if std::fs::create_dir_all(data_dir).is_ok() && std::fs::write(&path, config.to_string()).is_ok() {
+            args.extend(["--mcp-config".into(), path.display().to_string()]);
+        }
+    }
+    if let Some(settings) = crate::usage::claude_settings(data_dir) {
+        args.extend(["--settings".into(), settings.display().to_string()]);
+    }
+    args
+}
+
+/// Starts a `kind` agent named `name` in `pane`. Ok(true) means it is waiting on a
+/// first-run question (such as trusting the folder) before it takes messages.
+pub fn start_agent(machine: Option<&str>, name: &str, kind: &str, pane: &str, data_dir: &std::path::Path) -> Result<bool, String> {
+    if !AGENT_KINDS.iter().any(|(k, _, _)| *k == kind) {
+        return Err(format!("unknown agent kind {kind}"));
+    }
+    if !valid_agent_name(name) {
+        return Err("Names start with a lowercase letter and use only a-z, 0-9, - and _ (up to 32).".into());
+    }
+    let extra = if machine.is_none() { launch_args(kind, data_dir) } else { vec![] };
+    let mut args: Vec<&str> = vec!["agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "60000"];
+    if !extra.is_empty() {
+        args.push("--");
+        args.extend(extra.iter().map(String::as_str));
+    }
+    match run_coded(machine, &args, Duration::from_secs(90)) {
+        Ok(_) => Ok(false),
+        Err((code, _)) if code == "agent_not_ready" => Ok(true),
         Err((_, message)) => Err(message),
+    }
+}
+
+/// The end of an agent's terminal, as plain text.
+pub fn screen(machine: Option<&str>, target: &str, lines: u32) -> Result<String, String> {
+    let n = lines.to_string();
+    let read = run(machine, &["agent", "read", target, "--source", "recent-unwrapped", "--lines", &n, "--format", "text"], Duration::from_secs(15))?;
+    Ok(find_text(&read).unwrap_or_default())
+}
+
+/// Starts another agent in a new tab of the same workspace and folder as `from` and
+/// hands it the work: the conversation so far (see handoff.rs) and how to pick it up.
+#[allow(clippy::too_many_arguments)]
+pub fn switch_agent(
+    machine: Option<&str>,
+    from: &str,
+    from_kind: &str,
+    workspace: &str,
+    cwd: &str,
+    kind: &str,
+    name: &str,
+    request: Option<&str>,
+    data_dir: &std::path::Path,
+) -> Result<Value, String> {
+    if !AGENT_KINDS.iter().any(|(k, _, _)| *k == kind) {
+        return Err(format!("unknown agent kind {kind}"));
+    }
+    if !valid_agent_name(name) {
+        return Err("Names start with a lowercase letter and use only a-z, 0-9, - and _ (up to 32).".into());
+    }
+    // Saved transcripts are on this PC; for another machine, use its screen.
+    let messages = if machine.is_none() { crate::handoff::transcript(from_kind, cwd) } else { None };
+    let source = if messages.is_some() { "conversation" } else { "screen" };
+    let screen = if messages.is_none() { screen(machine, from, 120)? } else { String::new() };
+    // An unnamed agent is known by its pane id; its kind reads better.
+    let who = if from.contains(':') && !from_kind.is_empty() { from_kind } else { from };
+    let doc = crate::handoff::document(who, from_kind, cwd, messages, &screen);
+    // On another machine the new agent can't read a file on this PC, so it gets the text itself.
+    let prompt = if machine.is_none() {
+        let handoff_dir = data_dir.join("handoffs");
+        std::fs::create_dir_all(&handoff_dir).map_err(|e| e.to_string())?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let path = handoff_dir.join(format!("{name}-{stamp}.md"));
+        std::fs::write(&path, &doc).map_err(|e| e.to_string())?;
+        crate::handoff::prompt(who, &path, request)
+    } else {
+        format!("{doc}
+
+Carry on with the latest request. {}", request.unwrap_or(""))
+    };
+    let tab = run(machine, &["tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", name, "--focus"], Duration::from_secs(20))?;
+    let pane = first_pane_id(&tab).ok_or("Herdr did not say which pane to use")?;
+    if start_agent(machine, name, kind, &pane, data_dir)? {
+        // It asks a question first (such as trusting the folder); the UI sends the prompt after.
+        return Ok(json!({ "name": name, "pane": pane, "waiting": true, "prompt": prompt, "source": source }));
+    }
+    run(machine, &["agent", "prompt", name, &prompt], Duration::from_secs(30))?;
+    Ok(json!({ "name": name, "pane": pane, "waiting": false, "source": source }))
+}
+
+/// The longest string in a JSON value: the screen text, wherever Herdr puts it.
+fn find_text(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Object(m) => m.values().filter_map(find_text).max_by_key(String::len),
+        Value::Array(a) => a.iter().filter_map(find_text).max_by_key(String::len),
+        _ => None,
     }
 }
 

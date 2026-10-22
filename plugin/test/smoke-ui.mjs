@@ -15,6 +15,8 @@ const check = (label, ok, detail = '') => { if (!ok) failures++; console.log(`${
 const status = async () => (await control('GET', '/status')).browser;
 const alive = (s) => s.tabs.filter((t) => t.alive).length;
 
+// Start from an open panel so the globe checks below test closing, then reopening.
+if (!(await status()).open) await control('POST', '/open', {});
 const before = await status();
 await ui.click('#globe'); await ui.waitForTimeout(400);
 check('globe closes the panel', !(await status()).open && await ui.evaluate(() => document.getElementById('browser-pane').hidden));

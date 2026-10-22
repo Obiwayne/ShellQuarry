@@ -31,6 +31,8 @@ pub struct Tab {
     pub loading: bool,
     /// Whether a webview exists for this tab (lite mode unloads background tabs).
     pub alive: bool,
+    /// The agent that opened this tab for itself, so each agent drives its own tab.
+    pub owner: Option<String>,
 }
 
 #[derive(Default)]
@@ -138,7 +140,18 @@ fn is_start_page(url: &str) -> bool {
 }
 
 /// Creates the webview for a tab. Must be called without the state lock held.
+/// Held while a tab's webview is created or the tabs are laid out, so two callers at once
+/// (two agents using the browser, say) can't both create the same tab's webview.
+/// It also records which tabs have one: a webview Tauri is still registering isn't
+/// visible through get_webview yet.
+static WEBVIEWS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
 fn create_webview(app: &AppHandle, id: u32, url: Url) -> Result<(), String> {
+    let mut created = WEBVIEWS.lock().unwrap_or_else(|e| e.into_inner());
+    if created.contains(&id) || app.get_webview(&label(id)).is_some() {
+        return Ok(());
+    }
+    created.push(id);
     let window = app.get_window("main").ok_or("main window missing")?;
     let args = BROWSER_ARGS.get().cloned().unwrap_or_default();
 
@@ -193,11 +206,15 @@ fn create_webview(app: &AppHandle, id: u32, url: Url) -> Result<(), String> {
     // Created off-screen and hidden; layout() places it.
     let webview = window
         .add_child(builder, LogicalPosition::new(-10000.0, -10000.0), LogicalSize::new(800.0, 600.0))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            created.retain(|&t| t != id);
+            e.to_string()
+        })?;
     webview.hide().map_err(|e| e.to_string())
 }
 
 fn close_webview(app: &AppHandle, id: u32) {
+    WEBVIEWS.lock().unwrap_or_else(|e| e.into_inner()).retain(|&t| t != id);
     if let Some(webview) = app.get_webview(&label(id)) {
         let _ = webview.close();
     }
@@ -302,7 +319,7 @@ pub fn new_tab(app: &AppHandle, url: Option<String>, select: bool) -> Result<u32
         }
         b.next_id += 1;
         let id = b.next_id;
-        b.tabs.push(Tab { id, url: url.clone(), title: NEW_TAB_TITLE.into(), loading: !url.is_empty(), alive: false });
+        b.tabs.push(Tab { id, url: url.clone(), title: NEW_TAB_TITLE.into(), loading: !url.is_empty(), alive: false, owner: None });
         if select || b.active.is_none() {
             b.active = Some(id);
         }
@@ -319,6 +336,14 @@ pub fn new_tab(app: &AppHandle, url: Option<String>, select: bool) -> Result<u32
     }
     layout(app)?;
     Ok(id)
+}
+
+/// Marks a tab as one agent's own.
+pub fn set_owner(app: &AppHandle, id: u32, owner: &str) {
+    if let Some(tab) = state(app).0.lock().unwrap().tab_mut(id) {
+        tab.owner = Some(owner.chars().take(32).collect());
+    }
+    emit(app);
 }
 
 pub fn select_tab(app: &AppHandle, id: u32) -> Result<(), String> {
@@ -400,7 +425,7 @@ pub fn history(app: &AppHandle, action: &str) -> Result<(), String> {
 
 pub fn set_lite(app: &AppHandle, lite: bool) -> Result<(), String> {
     state(app).0.lock().unwrap().lite = lite;
-    crate::sys::save_settings(app, lite);
+    crate::sys::save_setting(app, "lite", lite.into());
     layout(app)
 }
 

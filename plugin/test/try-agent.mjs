@@ -13,7 +13,7 @@ mkdirSync(out, { recursive: true });
 const server = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'server.mjs');
 
 const client = new Client({ name: 'try-agent', version: '0.2.0' });
-await client.connect(new StdioClientTransport({ command: process.execPath, args: [server] }));
+await client.connect(new StdioClientTransport({ command: process.execPath, args: [server], env: { ...process.env } }));
 
 const { tools } = await client.listTools();
 console.log('tools:', tools.map((t) => t.name).join(', '));

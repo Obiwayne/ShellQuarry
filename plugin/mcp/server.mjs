@@ -13,7 +13,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { chromium } from 'playwright-core';
 import { z } from 'zod';
-import { cdpUrl, control, ensureRunning } from '../lib/session.mjs';
+import { randomUUID } from 'node:crypto';
+import { cdpUrl, control, ensureRunning, isRunning } from '../lib/session.mjs';
 
 const TEXT_LIMIT = 6000;
 
@@ -49,12 +50,44 @@ async function activity(label) {
   await control('POST', '/activity', { label }).catch(() => {});
 }
 
+// Each agent runs its own copy of this server, so each keeps its own tab: two agents
+// using the browser at once never drive the same page. The tab is labelled with the
+// agent's Herdr name (or its pane) so you can see whose it is.
+let ownTab = null;
+
+let myName = null;
+async function agentName() {
+  myName ??= await lookUpName();
+  return myName;
+}
+
+async function lookUpName() {
+  const pane = process.env.HERDR_PANE_ID;
+  if (!pane) return 'agent';
+  try {
+    const { execFileSync } = await import('node:child_process');
+    const out = JSON.parse(execFileSync('herdr', ['agent', 'list'], { encoding: 'utf8', timeout: 5000, windowsHide: true }));
+    const me = out.result?.agents?.find((a) => a.pane_id === pane);
+    return me?.name || me?.agent || pane;
+  } catch {
+    return pane;
+  }
+}
+
+/** This agent's tab, opening one the first time (or after the user closed it). */
+async function ownTabId() {
+  const state = await control('GET', '/status').then((s) => s.browser ?? s).catch(() => null);
+  if (ownTab && state?.tabs?.some((t) => t.id === ownTab)) return ownTab;
+  ownTab = (await control('POST', '/tabs/new', { owner: await agentName(), first: true })).tab;
+  return ownTab;
+}
+
 /** Opens the panel (starting the app if needed) and returns the target tab's page. */
 async function target(tab, label) {
   await ensureRunning(['--browser-only']);
-  const open = tab ? await control('POST', '/tabs/select', { tab }) : await control('POST', '/open', {});
-  const id = tab ?? open.active;
-  if (!id) throw new Error('No tab is open.');
+  const id = tab ?? (await ownTabId());
+  ownTab = id; // the tab it last opened or picked stays its tab
+  await control('POST', '/tabs/select', { tab: id });
   await activity(label);
   return { page: await pageFor(id), id };
 }
@@ -158,10 +191,22 @@ function tabsText(state) {
 
 const text = (t) => ({ content: [{ type: 'text', text: t }] });
 const fail = (err) => ({ content: [{ type: 'text', text: String(err?.message || err) }], isError: true });
-const tool = (fn) => async (args) => { try { return await fn(args ?? {}); } catch (err) { return fail(err); } };
-const tabArg = z.number().int().positive().optional().describe('Tab id from browser_tabs; the active tab when omitted');
+// Each action takes a turn with the panel (see control.rs), so agents using the browser at
+// the same time wait a moment for each other instead of fighting over which tab shows.
+const me = randomUUID();
+const tool = (fn) => async (args) => {
+  const turn = await isRunning().then((up) => up && control('POST', '/turn', { owner: me })).catch(() => false);
+  try {
+    return await fn(args ?? {});
+  } catch (err) {
+    return fail(err);
+  } finally {
+    if (turn) await control('POST', '/turn/end', { owner: me }).catch(() => {});
+  }
+};
+const tabArg = z.number().int().positive().optional().describe("Tab id from browser_tabs; your own tab when omitted (each agent gets its own)");
 
-const server = new McpServer({ name: 'shellquarry', version: '0.3.1' });
+const server = new McpServer({ name: 'shellquarry', version: '0.4.0' });
 
 server.registerTool('browser_open_panel', {
   description: 'Open the ShellQuarry browser panel so the user can watch. Starts ShellQuarry if it is not running.',
@@ -174,10 +219,10 @@ server.registerTool('browser_open_panel', {
 }));
 
 server.registerTool('browser_navigate', {
-  description: 'Open a web address in the ShellQuarry browser (the active tab, or new_tab) and return a snapshot of the page.',
+  description: 'Open a web address in the ShellQuarry browser (in your own tab, or new_tab) and return a snapshot of the page.',
   inputSchema: {
     url: z.string().describe('Address to open, e.g. https://example.com'),
-    new_tab: z.boolean().optional().describe('Open in a new tab instead of the active one'),
+    new_tab: z.boolean().optional().describe('Open in another new tab instead of your own one'),
     tab: tabArg,
   },
 }, tool(async ({ url, new_tab, tab }) => {
@@ -185,7 +230,7 @@ server.registerTool('browser_navigate', {
   let id = tab;
   if (new_tab) {
     await ensureRunning(['--browser-only']);
-    id = (await control('POST', '/tabs/new', {})).tab;
+    id = (await control('POST', '/tabs/new', { owner: await agentName() })).tab;
   }
   const { page, id: tabId } = await target(id, 'browsing');
   await page.goto(address, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -280,19 +325,24 @@ server.registerTool('browser_tabs', {
 }, tool(async () => text(tabsText((await control('GET', '/status')).browser))));
 
 server.registerTool('browser_new_tab', {
-  description: 'Open a new tab (optionally at an address) and make it active.',
+  description: 'Open a new tab (optionally at an address); it becomes your tab for the next steps.',
   inputSchema: { url: z.string().optional() },
 }, tool(async ({ url }) => {
   await ensureRunning(['--browser-only']);
-  const res = await control('POST', '/tabs/new', url ? { url } : {});
+  const res = await control('POST', '/tabs/new', { ...(url ? { url } : {}), owner: await agentName() });
+  ownTab = res.tab;
   await activity('opened a tab');
   return text(`Opened tab ${res.tab}.\n\n${tabsText(res.browser)}`);
 }));
 
 server.registerTool('browser_select_tab', {
-  description: 'Switch the panel to another tab.',
+  description: 'Switch to another tab; it becomes your tab for the next steps.',
   inputSchema: { tab: z.number().int().positive() },
-}, tool(async ({ tab }) => text(tabsText(await control('POST', '/tabs/select', { tab })))));
+}, tool(async ({ tab }) => {
+  const state = await control('POST', '/tabs/select', { tab });
+  ownTab = tab;
+  return text(tabsText(state));
+}));
 
 server.registerTool('browser_close_tab', {
   description: 'Close a tab.',

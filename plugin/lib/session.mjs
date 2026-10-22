@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const IDENTIFIER = 'dev.repoquarry.shellquarry';
+const IDENTIFIER = process.env.SHELLQUARRY_ID || 'dev.repoquarry.shellquarry';
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** The app's local data folder (Tauri's app_local_data_dir). */

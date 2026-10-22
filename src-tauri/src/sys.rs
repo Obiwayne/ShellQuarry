@@ -75,18 +75,74 @@ fn settings_path(app: &AppHandle) -> PathBuf {
     crate::control::data_dir(app).join("settings.json")
 }
 
-/// Saved lite-mode choice, if the user has made one.
-pub fn saved_lite(app: &AppHandle) -> Option<bool> {
-    let text = std::fs::read_to_string(settings_path(app)).ok()?;
-    serde_json::from_str::<Value>(&text).ok()?.get("lite")?.as_bool()
+fn settings(app: &AppHandle) -> Value {
+    std::fs::read_to_string(settings_path(app))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}))
 }
 
-pub fn save_settings(app: &AppHandle, lite: bool) {
+/// Saves one setting, keeping the others.
+pub fn save_setting(app: &AppHandle, key: &str, value: Value) {
     let path = settings_path(app);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, serde_json::to_vec_pretty(&json!({ "lite": lite })).unwrap());
+    let mut all = settings(app);
+    all[key] = value;
+    let _ = std::fs::write(path, serde_json::to_vec_pretty(&all).unwrap());
+}
+
+/// Saved lite-mode choice, if the user has made one.
+pub fn saved_lite(app: &AppHandle) -> Option<bool> {
+    settings(app).get("lite")?.as_bool()
+}
+
+/// Whether Herdr draws its own sidebar rail and single-tab row inside the
+/// terminal. Off by default: ShellQuarry's sidebar and toolbar show the same things.
+pub fn herdr_chrome(app: &AppHandle) -> bool {
+    settings(app).get("herdr_chrome").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Herdr settings that hide what ShellQuarry already shows around the terminal.
+/// The tab row is always drawn on the top line so the UI can clip it away (see app.js);
+/// Herdr has no setting to hide it once there are two tabs.
+const CLEAN_UI: [(&str, bool); 3] = [
+    ("sidebar_start_collapsed", true),
+    ("hide_tab_bar_when_single_tab", false),
+    ("pane_outer_borders", false),
+];
+
+/// A copy of the user's Herdr config with the duplicate chrome turned off, for
+/// the Herdr client in ShellQuarry's terminal (passed as HERDR_CONFIG_PATH).
+/// Herdr in other terminals keeps using the user's own file.
+pub fn herdr_client_config(app: &AppHandle) -> Option<PathBuf> {
+    if herdr_chrome(app) {
+        return None;
+    }
+    let user = herdr_config_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default();
+    let mut config = user.parse::<toml::Table>().ok()?;
+    let path = crate::control::data_dir(app).join("herdr-config.toml");
+    // Herdr writes onboarding = false once its first-run screen is done; keep that.
+    let previous = std::fs::read_to_string(&path).ok().and_then(|t| t.parse::<toml::Table>().ok());
+    if let Some(done) = previous.as_ref().and_then(|t| t.get("onboarding")) {
+        config.entry("onboarding").or_insert(done.clone());
+    }
+    let ui = config.entry("ui").or_insert_with(|| toml::Value::Table(Default::default()));
+    let ui = ui.as_table_mut()?;
+    for (key, value) in CLEAN_UI {
+        ui.insert(key.into(), toml::Value::Boolean(value));
+    }
+    ui.insert("sidebar_collapsed_mode".into(), toml::Value::String("hidden".into()));
+    ui.insert("tab_bar_position".into(), toml::Value::String("top".into()));
+    // The narrow single-column layout has no tab row on top to clip.
+    ui.insert("mobile_width_threshold".into(), toml::Value::Integer(0));
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    std::fs::write(&path, toml::to_string(&config).ok()?).ok()?;
+    Some(path)
 }
 
 /// Lite mode when the user chose it, or by default on machines with little memory.

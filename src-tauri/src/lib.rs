@@ -12,8 +12,10 @@
 
 mod browser;
 mod control;
+mod handoff;
 mod herdr;
 mod pty;
+mod usage;
 mod sys;
 
 use std::net::TcpListener;
@@ -54,6 +56,7 @@ fn app_info(app: AppHandle, launch: tauri::State<Launch>) -> Value {
         "lite_below_gb": sys::LITE_BELOW_GB,
         "theme": sys::herdr_theme(),
         "herdr_keys": sys::herdr_config_table("keys"),
+        "herdr_chrome": sys::herdr_chrome(&app),
         "browser": browser::snapshot(&app),
     })
 }
@@ -83,6 +86,7 @@ async fn herdr_cmd(machine: Option<String>, args: Vec<String>) -> Result<Value, 
 
 #[tauri::command]
 async fn herdr_new_agent(
+    app: AppHandle,
     machine: Option<String>,
     kind: String,
     name: String,
@@ -90,7 +94,41 @@ async fn herdr_new_agent(
     worktree: bool,
     branch: Option<String>,
 ) -> Result<Value, String> {
-    herdr::new_agent(machine.as_deref(), &kind, &name, &cwd, worktree, branch.as_deref())
+    herdr::new_agent(machine.as_deref(), &kind, &name, &cwd, worktree, branch.as_deref(), &control::data_dir(&app))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn herdr_switch_agent(
+    app: AppHandle,
+    machine: Option<String>,
+    from: String,
+    from_kind: String,
+    workspace: String,
+    cwd: String,
+    kind: String,
+    name: String,
+    request: Option<String>,
+) -> Result<Value, String> {
+    herdr::switch_agent(machine.as_deref(), &from, &from_kind, &workspace, &cwd, &kind, &name, request.as_deref(), &control::data_dir(&app))
+}
+
+/// Starts an agent in an existing pane; true when it waits on a first-run question.
+#[tauri::command]
+async fn herdr_start_agent(app: AppHandle, machine: Option<String>, name: String, kind: String, pane: String) -> Result<bool, String> {
+    herdr::start_agent(machine.as_deref(), &name, &kind, &pane, &control::data_dir(&app))
+}
+
+/// The 5-hour and weekly plan usage of the agents that report it.
+#[tauri::command]
+async fn usage_snapshot(app: AppHandle) -> Value {
+    usage::snapshot(&control::data_dir(&app))
+}
+
+/// Whether an agent's screen shows that its plan's usage has run out.
+#[tauri::command]
+async fn herdr_out_of_usage(machine: Option<String>, target: String) -> bool {
+    herdr::screen(machine.as_deref(), &target, 25).is_ok_and(|s| handoff::looks_out_of_usage(&s))
 }
 
 #[tauri::command]
@@ -117,6 +155,11 @@ async fn herdr_open_setup() -> Result<(), String> {
 #[tauri::command]
 fn pty_start(app: AppHandle, cols: u16, rows: u16) -> Result<(), String> {
     pty::start(&app, cols, rows)
+}
+
+#[tauri::command]
+fn set_herdr_chrome(app: AppHandle, on: bool) {
+    sys::save_setting(&app, "herdr_chrome", on.into());
 }
 
 #[tauri::command]
@@ -186,6 +229,12 @@ fn set_page_colors(bg: String, text: String, muted: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Claude Code runs this as its status line for agents started here (see usage.rs).
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--statusline") {
+        usage::statusline(args.get(2).map(String::as_str));
+        return;
+    }
     let launch = parse_args(std::env::args());
     let cdp_port = control::free_port();
     let control_listener = TcpListener::bind("127.0.0.1:0").expect("control port");
@@ -227,12 +276,17 @@ pub fn run() {
             herdr_machines,
             herdr_cmd,
             herdr_new_agent,
+            herdr_switch_agent,
+            herdr_start_agent,
+            usage_snapshot,
+            herdr_out_of_usage,
             herdr_agent_kinds,
             herdr_add_machine,
             herdr_open_setup,
             pty_start,
             pty_write,
             pty_resize,
+            set_herdr_chrome,
             browser_set_open,
             browser_layout,
             browser_new_tab,

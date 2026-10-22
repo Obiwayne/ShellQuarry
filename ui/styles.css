@@ -68,6 +68,21 @@ button { font: inherit; color: inherit; }
 
 .title-actions { display: flex; align-items: center; gap: 6px; }
 
+/* plan usage: one chip per agent kind, with 5-hour and weekly bars */
+.usage { display: flex; align-items: center; gap: 8px; margin: 0 10px; min-width: 0; overflow: hidden; }
+.usage-chip {
+  display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: transparent;
+  color: var(--muted); font: 12px var(--font-ui); cursor: pointer; white-space: nowrap;
+}
+.usage-chip:hover { color: var(--text); background: var(--row); }
+.usage-chip b { color: var(--text); font-weight: 600; }
+.usage-meter { display: inline-flex; align-items: center; gap: 5px; }
+.usage-bar { width: 34px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.usage-bar i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
+.usage-bar.warn i { background: var(--yellow); }
+.usage-bar.high i { background: var(--red); }
+
 .agent-pill {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 3px 10px; border-radius: 999px;
@@ -101,7 +116,7 @@ body.sidebar-hidden .body { padding-left: 10px; }
 }
 
 .term-card { flex: 1; padding: 10px 4px 4px 12px; }
-#term { flex: 1; min-height: 0; }
+#term { flex: 1; min-height: 0; overflow: hidden; }
 
 body.browser-only .sidebar, body.browser-only .main, body.browser-only .gutter { display: none !important; }
 body.browser-only .side-panel { flex: 1; width: auto !important; }
@@ -116,15 +131,6 @@ body.browser-only .body { padding-left: 10px; }
 
 /* ---- sidebar ------------------------------------------------------------- */
 
-.side-brand {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px 14px; font-weight: 600;
-}
-.logo {
-  display: inline-grid; place-items: center; width: 22px; height: 22px;
-  border-radius: calc(var(--radius) * 0.6);
-  background: var(--accent); color: var(--on-accent); font: 700 12px/1 var(--font-mono);
-}
 
 .side-section { min-height: 0; display: flex; flex-direction: column; margin-bottom: 14px; }
 .side-section.grow { flex: 1; overflow-y: auto; scrollbar-width: thin; }
@@ -194,6 +200,7 @@ body.browser-only .body { padding-left: 10px; }
   background: transparent; color: var(--muted); cursor: pointer; text-align: left;
 }
 .tab .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.tab .owner { flex: none; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 999px; background: var(--sel); color: var(--text); font-size: 11px; }
 .tab .busy { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .tab .asleep { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); }
 .tab .x { color: var(--muted); visibility: hidden; padding: 0 3px; border-radius: 4px; }

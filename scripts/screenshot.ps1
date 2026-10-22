@@ -1,6 +1,6 @@
 # Saves a PNG of the ShellQuarry window (for docs and launch images).
 #   powershell -ExecutionPolicy Bypass -File scripts/screenshot.ps1 -Out shot.png
-param([Parameter(Mandatory = $true)][string]$Out, [string]$Process = "shellquarry")
+param([Parameter(Mandatory = $true)][string]$Out, [string]$Process = "shellquarry", [int]$Id = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -12,7 +12,7 @@ public static class SqWin { [DllImport("user32.dll")] public static extern bool 
 public struct RECT { public int L, T, R, B; } }
 '@
 [SqWin]::SetProcessDPIAware() | Out-Null
-$p = Get-Process $Process | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$p = $(if ($Id) { Get-Process -Id $Id } else { Get-Process $Process }) | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if ([SqWin]::IsIconic($p.MainWindowHandle)) { [SqWin]::ShowWindow($p.MainWindowHandle, 9) | Out-Null }
 [SqWin]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 700

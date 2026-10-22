@@ -59,6 +59,12 @@
 .herdr-tab .dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; vertical-align: middle; }
 .herdr-tab .dot.working { background: var(--accent); }
 .herdr-tab .dot.blocked { background: var(--red); }
+.herdr-tab .tab-close {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; margin: 0 -4px 0 6px;
+  border-radius: 4px; font-size: 13px; line-height: 1; color: var(--muted); opacity: 0;
+}
+.herdr-tab:hover .tab-close, .herdr-tab.active .tab-close { opacity: 1; }
+.herdr-tab .tab-close:hover { background: var(--line); color: var(--text); }
 .tool-group { display: flex; gap: 2px; }
 #term { flex: 1; min-height: 0; margin: 8px 4px 4px 12px; }
 
@@ -150,12 +156,13 @@ body.browser-only .composer { display: none; }
 .dialog p { margin: 0 0 12px; color: var(--subtle); }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .field > span { font-size: 12px; color: var(--muted); }
-.field input, .field select {
+.field input, .field select, .field textarea {
   height: 34px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7);
   background: var(--bg); color: var(--text); font: 13px var(--font-ui);
 }
-.field input:focus, .field select:focus { outline: 0; border-color: var(--accent); }
+.field input:focus, .field select:focus, .field textarea:focus { outline: 0; border-color: var(--accent); }
+.field textarea { height: auto; padding: 8px 10px; resize: vertical; }
 .field-row { display: flex; gap: 8px; }
 .field-row input { flex: 1; min-width: 0; }
 .check { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; color: var(--subtle); }
