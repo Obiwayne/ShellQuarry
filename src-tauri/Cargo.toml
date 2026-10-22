@@ -1,9 +1,10 @@
 [package]
 name = "shellquarry"
-version = "0.1.0"
-description = "A desktop shell for terminal agent tools with a built-in browser panel that agents can drive over MCP."
+version = "0.2.0"
+description = "The browser shell for Herdr: a terminal and a browser side panel your agents drive over MCP."
 authors = ["Obiwayne"]
 license = "MIT"
+repository = "https://github.com/Obiwayne/ShellQuarry"
 edition = "2021"
 
 [lib]
@@ -14,12 +15,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# "unstable" enables several webviews in one window (the browser panel);
-# "webview-data-url" lets the panel start on a built-in blank page.
+# "unstable" enables several webviews in one window (the browser tabs);
+# "webview-data-url" lets a new tab start on a built-in blank page.
 tauri = { version = "2", features = ["unstable", "webview-data-url"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
+getrandom = "0.3"
+toml = "0.9"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
 
 [profile.release]
 codegen-units = 1

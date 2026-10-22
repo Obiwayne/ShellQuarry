@@ -1,21 +1,153 @@
-# ShellQuarry: the browser shell for Herdr (prototype)
+# ShellQuarry: the browser shell for Herdr
 
-A desktop shell for [Herdr](https://herdr.dev) and other terminal agent tools, with a browser side panel that your
-agents can drive, like the globe browser in the Claude Code desktop app. Herdr keeps running unchanged inside it;
-ShellQuarry adds the window, the globe button and the browser.
+A desktop app for [Herdr](https://herdr.dev) that gives your coding agents a browser you can watch, laid out like
+the Claude Code desktop app: your Herdr agents in the sidebar, Herdr in the middle, and a browser side panel that
+opens from the globe button. Agents drive the browser over MCP, and a cursor glides to everything they click or
+type into, so you can follow along.
+
+It comes in two parts:
+
+- **The app** (Windows): Herdr runs unchanged in its terminal. ShellQuarry adds the window, the sidebar and the browser.
+- **A Herdr plugin**: "Open agent browser" from inside Herdr, Ctrl+click links into the agent browser, and a popup
+  that connects Claude Code and Codex. Works whether you run Herdr inside ShellQuarry or in Windows Terminal.
 
 ShellQuarry is an independent project. It is not made by or affiliated with Herdr.
 
-- **Left:** a real terminal (xterm.js on a pseudoterminal from portable-pty). Run Herdr, Claude Code, Codex or anything else in it.
-- **Top right:** the globe button (or Ctrl+Shift+B) opens and closes the browser panel.
-- **Right:** the browser panel, a separate WebView2 webview with its own address bar. Agents control it over MCP, and a
-  blue cursor glides to each thing they click or type into, so you can follow along.
+## What's in the window
+
+- **Sidebar:** your Herdr workspaces and agents, live, with each agent's status (working, needs you, done, idle).
+  Click one to jump to it in Herdr. At the bottom: *Connect agents*, the colour picker, and the memory mode.
+- **Terminal:** Herdr (or PowerShell when Herdr isn't installed).
+- **Browser panel:** tabs, back/forward/reload and an address bar. Opens with the globe button or **Ctrl+Shift+B**.
+  **Ctrl+Shift+S** hides the sidebar. Links that open a new window become a new tab.
+
+### Colours
+
+Pick from the colour button at the bottom of the sidebar:
+
+- **Follow Herdr** (default): uses the theme in `%APPDATA%\herdr\config.toml`, including custom colours and
+  light/dark auto-switching.
+- **Claude dark / Claude light**: Claude Code's palette, with a sans-serif interface.
+- **Any of Herdr's built-in themes**: Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, One Dark, Solarized,
+  Kanagawa, Rosé Pine, Vesper and their light versions.
+
+Herdr draws its own screens in its own theme. To make Herdr match a Claude palette too, set its theme to
+`terminal` so it uses ShellQuarry's terminal colours:
+
+```toml
+[theme]
+name = "terminal"
+```
+
+### Memory: full and lite mode
+
+| | Full | Lite |
+|---|---|---|
+| Tabs | up to 8 | up to 4 |
+| Background tabs | stay loaded | unloaded, reloaded when you open them |
+| Closing the panel | pages stay loaded | everything is unloaded |
+
+Machines with less than 12 GB of memory start in lite mode; click the Full/Lite chip to switch. **16 GB is
+recommended**; 8 GB works in lite mode with one or two agents.
+
+## Install
+
+1. Install [Herdr](https://herdr.dev) (`powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"`).
+2. Run the ShellQuarry installer (`ShellQuarry_0.2.0_x64-setup.exe`, built with `npm run build`).
+3. Install the plugin (needs Node.js 20+):
+
+   ```
+   herdr plugin install Obiwayne/ShellQuarry/plugin
+   ```
+
+4. Connect your agents: click **Connect agents** in ShellQuarry's sidebar, or open the plugin's *connect agents*
+   popup in Herdr. It offers to add the browser to Claude Code and Codex. To do it by hand:
+
+   ```
+   claude mcp add --scope user shellquarry -- node "<plugin folder>/mcp/server.mjs"
+   ```
+
+5. Optional keybinding: add to `%APPDATA%\herdr\config.toml`, then `herdr server reload-config`:
+
+   ```toml
+   [[keys.command]]
+   key = "prefix+o"
+   type = "plugin_action"
+   command = "shellquarry.browser.open"
+   description = "open agent browser"
+   ```
+
+## Agent tools
+
+`browser_open_panel`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press_key`,
+`browser_scroll`, `browser_back`, `browser_screenshot`, `browser_tabs`, `browser_new_tab`, `browser_select_tab`,
+`browser_close_tab`, `browser_close_panel`.
+
+Snapshots list each page's clickable elements with refs (`[e12] button "Sign in"`); agents pass a ref to
+`browser_click` or `browser_type`. Tools act on the active tab unless given a `tab` id. If ShellQuarry isn't running,
+the first tool call starts it as a browser window.
+
+## How it works
+
+```
+ShellQuarry window (Tauri)
+├── "ui" webview: sidebar, title bar, terminal (xterm.js ⇄ portable-pty ⇄ herdr.exe)
+└── "tab-N" webviews: one per browser tab, placed over the panel
+        ▲ DevTools port (random, 127.0.0.1)          ▲ control API (random port + token, 127.0.0.1)
+        │                                            │
+   mcp/server.mjs (Playwright) ──────────────────────┤
+        ▲ stdio                                      │
+   your agent (Claude Code, Codex...)        Herdr plugin actions
+```
+
+- On start the app picks two random loopback ports and a random token and writes them to
+  `%LOCALAPPDATA%\dev.repoquarry.shellquarry\session.json`, which is removed on exit.
+- The control API refuses requests without the token, requests from web pages (an `Origin` header) and requests
+  with a foreign `Host` header.
+- The MCP server drives only the browser tabs, never the app's own interface.
+- A second launch hands its request (for example a link to open) to the running app.
+
+## Develop
+
+Needs Windows 10/11, Node.js 20+, Rust and the Microsoft C++ Build Tools (see the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)).
+
+```
+npm install
+npm run dev          # run the app
+npm run build        # app + installer in src-tauri/target/release/bundle/nsis
+npm run icons        # re-render the icon from assets/icon.svg
+cd plugin && npm install
+herdr plugin link .  # use your working copy as the Herdr plugin
+```
+
+`SHELLQUARRY_SHELL` overrides what the terminal runs, for example `SHELLQUARRY_SHELL=pwsh`.
+
+With the app open, from `plugin/`:
+
+```
+node test/try-agent.mjs      # an agent session over MCP: tabs, search, scrolling, screenshots
+node test/smoke-ui.mjs       # globe toggle and lite mode
+node test/pick-palette.mjs "Claude dark"
+```
+
+## Limits
+
+- **Windows only for now.** The agent bridge uses WebView2's DevTools port. Tauri and Herdr also run on macOS and
+  Linux, so a port is possible.
+- **Any program running as you can still reach the browser** through its DevTools port while the app is open; the
+  random port only makes it harder to find. The control API is token-protected. Programs running as you can already
+  read your files, so this matches the usual desktop trust model, but don't run untrusted software alongside it.
+- The browser keeps one profile, so sign-ins persist between runs.
+- **Lite mode saves less than hoped.** WebView2 shares page processes between tabs, so unloading background tabs
+  freed little memory in testing (about 300 MB for five tabs either way). The tab limit still caps growth.
+- The Herdr plugin needs Node.js, and agents need it to run the MCP server.
 
 ## Built with RepoQuarry
 
 ShellQuarry was put together with [RepoQuarry](https://repoquarry.dev), a catalogue of open-source projects with a
-source and a date for every fact. Its open-source building blocks were picked from RepoQuarry and are listed there
-under [Building blocks](https://repoquarry.dev/tags/building-blocks):
+source and a date for every fact. Its building blocks were picked from RepoQuarry and are listed there under
+[Building blocks](https://repoquarry.dev/tags/building-blocks):
 
 | Piece | Project | Licence |
 |---|---|---|
@@ -25,68 +157,4 @@ under [Building blocks](https://repoquarry.dev/tags/building-blocks):
 | Browser control | Playwright's library (`playwright-core`), from the team behind [Playwright MCP](https://repoquarry.dev/projects/playwright-mcp) | Apache-2.0 |
 | Agent connection | MCP TypeScript SDK | MIT |
 
-## Run it
-
-Needs Windows 10/11, Node.js 20+, Rust, and the Microsoft C++ Build Tools (see the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)).
-
-```
-npm install
-npm run dev
-```
-
-The terminal starts PowerShell. To start something else, set `SHELLQUARRY_SHELL` before launching, for example
-`SHELLQUARRY_SHELL=wsl.exe` to open WSL, where Herdr runs.
-
-## Connect an agent
-
-The agent starts the MCP server itself. For Claude Code:
-
-```
-claude mcp add shellquarry -- node F:/ShellQuarry/mcp/server.mjs
-```
-
-Other MCP clients use the same command (`node <path>/mcp/server.mjs`, stdio). The app must be open.
-
-Tools: `browser_open_panel`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`,
-`browser_press_key`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close_panel`.
-
-Snapshots list the page's clickable elements with refs (`[e12] button "Sign in"`); agents pass a ref to
-`browser_click` or `browser_type`.
-
-### Agents running in WSL (Herdr)
-
-The panel lives on the Windows side. An agent inside WSL can reach it if WSL uses
-[mirrored networking](https://learn.microsoft.com/en-us/windows/wsl/networking); then the same command works with
-Node installed in WSL. Otherwise set `SHELLQUARRY_CDP=http://<windows-host-ip>:9333`. Not tested yet.
-
-## How it works
-
-```
-ShellQuarry window (Tauri)
-├── "ui" webview: top bar + terminal  ──IPC──► Rust: pty_start / pty_write / browser_layout ...
-└── "browser" webview: the side panel ◄──DevTools port 127.0.0.1:9333──┐
-                                                                        │
-agent (Claude Code, Codex...) ──stdio──► mcp/server.mjs (Playwright) ───┘
-```
-
-The MCP server only acts on the browser panel. It touches the app's own UI page just to open the panel and show
-"Agent is browsing" in the top bar.
-
-## Try it without an agent
-
-With the app open:
-
-```
-node scripts/try-agent.mjs     # opens Wikipedia, reads, scrolls, saves screenshots to try-agent-output/
-node scripts/try-cursor.mjs    # types into a search box so you can see the agent cursor
-node scripts/smoke-ui.mjs      # globe toggle and a terminal round trip
-```
-
-## Prototype limits
-
-- **Security:** the DevTools port is bound to 127.0.0.1, but any program on this PC can use it to control the panel
-  while the app is open. A release should use a random port with a token, or a named pipe.
-- The panel shares one profile, so logins in it persist between runs. One tab only.
-- Windows only so far. Tauri supports macOS and Linux, but the agent bridge relies on WebView2's DevTools port.
-- The icons are borrowed from DiskQuarry for now.
+Herdr's theme palettes in `ui/themes.js` are ported from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0).

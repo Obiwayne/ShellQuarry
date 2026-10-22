@@ -1,0 +1,21 @@
+{
+  "name": "shellquarry-herdr-plugin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Herdr plugin and MCP server for the ShellQuarry agent browser.",
+  "license": "MIT",
+  "bin": {
+    "shellquarry-mcp": "mcp/server.mjs"
+  },
+  "scripts": {
+    "mcp": "node mcp/server.mjs",
+    "test:agent": "node test/try-agent.mjs",
+    "test:ui": "node test/smoke-ui.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "playwright-core": "^1.64.1",
+    "zod": "^4.6.7"
+  }
+}

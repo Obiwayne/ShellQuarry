@@ -1,244 +1,257 @@
-//! ShellQuarry: one window with two webviews. "ui" draws the top bar and the
-//! terminal; "browser" is the side panel agents drive over MCP. The terminal is
-//! a real shell behind a pseudoterminal (portable-pty).
+//! ShellQuarry: the browser shell for Herdr.
 //!
-//! Agents reach the browser panel through WebView2's DevTools port on
-//! 127.0.0.1 (see mcp/server.mjs), so the app itself needs no MCP code.
+//! One window. The "ui" webview draws the top bar and the terminal (Herdr, or
+//! a shell); browser tabs are separate webviews placed over the UI's panel
+//! slot (browser.rs). Agents drive the tabs over WebView2's DevTools port, and
+//! the Herdr plugin and MCP server control the panel through a token-protected
+//! local API (control.rs).
+//!
+//! Command-line options (used by the Herdr plugin):
+//!   --browser-only   no terminal; just the browser panel
+//!   --open <url>     open the panel at this address
 
-use std::io::{Read, Write};
-use std::sync::Mutex;
+mod browser;
+mod control;
+mod pty;
+mod sys;
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
-use tauri::{
-    AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Rect, State, Url,
-    WebviewUrl,
-};
+use std::net::TcpListener;
 
-/// DevTools port for the browser panel. Chromium binds it to loopback only.
-pub const CDP_PORT: u16 = 9333;
+use serde_json::{json, Value};
+use tauri::webview::WebviewBuilder;
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, RunEvent, WebviewUrl};
 
-const UI: &str = "ui";
-const BROWSER: &str = "browser";
+pub const UI: &str = "ui";
 
-struct Pty {
-    writer: Box<dyn Write + Send>,
-    master: Box<dyn MasterPty + Send>,
-    _child: Box<dyn Child + Send + Sync>,
+struct Launch {
+    browser_only: bool,
+    open: Option<String>,
 }
 
-#[derive(Default)]
-struct AppState {
-    pty: Mutex<Option<Pty>>,
-}
-
-#[derive(Clone, Serialize)]
-struct BrowserPage {
-    url: String,
-    loading: bool,
-}
-
-/// The shell to start: SHELLQUARRY_SHELL if set (e.g. "wsl.exe" to run Herdr),
-/// otherwise PowerShell on Windows and $SHELL elsewhere.
-fn shell_command() -> CommandBuilder {
-    let line = std::env::var("SHELLQUARRY_SHELL").ok().filter(|s| !s.trim().is_empty());
-    let line = line.unwrap_or_else(|| {
-        if cfg!(windows) {
-            "powershell.exe -NoLogo".into()
-        } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+fn parse_args(argv: impl IntoIterator<Item = String>) -> Launch {
+    let mut launch = Launch { browser_only: false, open: None };
+    let mut args = argv.into_iter().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--browser-only" => launch.browser_only = true,
+            "--open" => launch.open = args.next(),
+            _ => {}
         }
-    });
-    let mut parts = line.split_whitespace();
-    let mut cmd = CommandBuilder::new(parts.next().unwrap_or("powershell.exe"));
-    cmd.args(parts);
-    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
-        cmd.cwd(home);
     }
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env("SHELLQUARRY_CDP_PORT", CDP_PORT.to_string());
-    cmd
+    launch
 }
 
 #[tauri::command]
-fn pty_start(app: AppHandle, state: State<AppState>, cols: u16, rows: u16) -> Result<(), String> {
-    let mut slot = state.pty.lock().unwrap();
-    if slot.is_some() {
-        return Ok(());
-    }
-    let pair = native_pty_system()
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| e.to_string())?;
-    let child = pair.slave.spawn_command(shell_command()).map_err(|e| e.to_string())?;
-    drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 16 * 1024];
-        // Bytes of a UTF-8 character split across two reads.
-        let mut carry: Vec<u8> = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    carry.extend_from_slice(&buf[..n]);
-                    let (text, rest) = match std::str::from_utf8(&carry) {
-                        Ok(s) => (s.to_string(), Vec::new()),
-                        Err(e) if e.error_len().is_none() => {
-                            let cut = e.valid_up_to();
-                            (String::from_utf8_lossy(&carry[..cut]).into_owned(), carry[cut..].to_vec())
-                        }
-                        Err(_) => (String::from_utf8_lossy(&carry).into_owned(), Vec::new()),
-                    };
-                    carry = rest;
-                    if !text.is_empty() {
-                        let _ = app.emit_to(EventTarget::webview(UI), "pty-data", text);
-                    }
-                }
-            }
-        }
-        let _ = app.emit_to(EventTarget::webview(UI), "pty-exit", ());
-        if let Some(state) = app.try_state::<AppState>() {
-            state.pty.lock().unwrap().take();
-        }
-    });
-
-    *slot = Some(Pty { writer, master: pair.master, _child: child });
-    Ok(())
+fn app_info(app: AppHandle, launch: tauri::State<Launch>) -> Value {
+    let (_, shell) = pty::shell_line();
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "browser_only": launch.browser_only,
+        "shell": shell,
+        "herdr_installed": pty::find_herdr().is_some(),
+        "memory_gb": sys::total_memory_gb(),
+        "lite_below_gb": sys::LITE_BELOW_GB,
+        "theme": sys::herdr_theme(),
+        "browser": browser::snapshot(&app),
+    })
 }
 
 #[tauri::command]
-fn pty_write(state: State<AppState>, data: String) -> Result<(), String> {
-    match state.pty.lock().unwrap().as_mut() {
-        Some(pty) => pty.writer.write_all(data.as_bytes()).map_err(|e| e.to_string()),
-        None => Err("terminal is not running".into()),
-    }
+fn herdr_theme() -> Value {
+    sys::herdr_theme()
 }
 
+/// Herdr workspaces and agents for the sidebar.
 #[tauri::command]
-fn pty_resize(state: State<AppState>, cols: u16, rows: u16) -> Result<(), String> {
-    if let Some(pty) = state.pty.lock().unwrap().as_ref() {
-        pty.master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+async fn herdr_overview() -> Value {
+    sys::herdr_overview()
 }
 
-/// Places the browser panel over the UI's empty slot (logical pixels), or hides it.
+/// Focuses a Herdr agent or workspace in the terminal.
 #[tauri::command]
-fn browser_layout(app: AppHandle, visible: bool, x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
-    let webview = app.get_webview(BROWSER).ok_or("browser panel missing")?;
-    if !visible || width < 1.0 || height < 1.0 {
-        return webview.hide().map_err(|e| e.to_string());
-    }
-    webview
-        .set_bounds(Rect {
-            position: LogicalPosition::new(x, y).into(),
-            size: LogicalSize::new(width, height).into(),
-        })
-        .map_err(|e| e.to_string())?;
-    webview.show().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn browser_navigate(app: AppHandle, url: String) -> Result<(), String> {
-    let url = url.trim();
-    let url = if url.contains("://") || url.starts_with("about:") { url.to_string() } else { format!("https://{url}") };
-    let parsed: Url = url.parse().map_err(|_| format!("not a valid address: {url}"))?;
-    app.get_webview(BROWSER).ok_or("browser panel missing")?.navigate(parsed).map_err(|e| e.to_string())
-}
-
-/// Back, forward or reload in the browser panel.
-#[tauri::command]
-fn browser_history(app: AppHandle, action: String) -> Result<(), String> {
-    let script = match action.as_str() {
-        "back" => "history.back()",
-        "forward" => "history.forward()",
-        "reload" => "location.reload()",
-        _ => return Err(format!("unknown action {action}")),
+async fn herdr_focus(kind: String, id: String) -> Result<(), String> {
+    let noun = match kind.as_str() {
+        "agent" => "agent",
+        "workspace" => "workspace",
+        _ => return Err(format!("unknown kind {kind}")),
     };
-    app.get_webview(BROWSER).ok_or("browser panel missing")?.eval(script).map_err(|e| e.to_string())
+    sys::herdr(&[noun, "focus", &id]).map(|_| ())
 }
 
-/// What the browser panel shows before anyone navigates.
-fn start_page() -> Url {
-    const HTML: &str = "<!doctype html><title>New tab</title><body style=\"margin:0;height:100vh;display:grid;\
-place-items:center;background:#0d0f14;color:#8b93a5;font:14px 'Segoe UI',system-ui,sans-serif\">\
-<div style=\"text-align:center\"><div style=\"font-size:15px;color:#e6e9ef;margin-bottom:6px\">Agent browser</div>\
-Type an address above, or ask your agent to open a page.</div></body>";
-    let encoded: String = HTML
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect();
-    format!("data:text/html;charset=utf-8,{encoded}").parse().expect("start page URL")
+/// Opens the plugin's "connect agents" popup inside Herdr.
+#[tauri::command]
+async fn herdr_open_setup() -> Result<(), String> {
+    sys::herdr(&["plugin", "pane", "open", "--plugin", "shellquarry.browser", "--entrypoint", "setup", "--focus"]).map(|_| ())
 }
 
 #[tauri::command]
-fn cdp_port() -> u16 {
-    CDP_PORT
+fn pty_start(app: AppHandle, cols: u16, rows: u16) -> Result<(), String> {
+    pty::start(&app, cols, rows)
+}
+
+#[tauri::command]
+fn pty_write(app: AppHandle, data: String) -> Result<(), String> {
+    pty::write(&app, &data)
+}
+
+#[tauri::command]
+fn pty_resize(app: AppHandle, cols: u16, rows: u16) -> Result<(), String> {
+    pty::resize(&app, cols, rows)
+}
+
+// Browser commands are async so they run off the main thread: creating and
+// placing webviews waits on the main thread.
+
+#[tauri::command]
+async fn browser_set_open(app: AppHandle, open: bool) -> Result<(), String> {
+    browser::set_open(&app, open)
+}
+
+/// Where the panel slot is, in logical pixels; null when it is not on screen.
+#[tauri::command]
+async fn browser_layout(app: AppHandle, rect: Option<(f64, f64, f64, f64)>) -> Result<(), String> {
+    browser::set_rect(&app, rect)
+}
+
+#[tauri::command]
+async fn browser_new_tab(app: AppHandle, url: Option<String>) -> Result<u32, String> {
+    browser::new_tab(&app, url, true)
+}
+
+#[tauri::command]
+async fn browser_select_tab(app: AppHandle, id: u32) -> Result<(), String> {
+    browser::select_tab(&app, id)
+}
+
+#[tauri::command]
+async fn browser_close_tab(app: AppHandle, id: u32) -> Result<(), String> {
+    browser::close_tab(&app, id)
+}
+
+#[tauri::command]
+async fn browser_navigate(app: AppHandle, url: String) -> Result<u32, String> {
+    browser::navigate(&app, &url, None)
+}
+
+#[tauri::command]
+async fn browser_history(app: AppHandle, action: String) -> Result<(), String> {
+    browser::history(&app, &action)
+}
+
+#[tauri::command]
+async fn browser_set_lite(app: AppHandle, lite: bool) -> Result<(), String> {
+    browser::set_lite(&app, lite)
+}
+
+#[tauri::command]
+fn browser_state(app: AppHandle) -> browser::Snapshot {
+    browser::snapshot(&app)
+}
+
+/// The UI's theme colours, so new-tab pages match.
+#[tauri::command]
+fn set_page_colors(bg: String, text: String, muted: String) {
+    sys::set_start_page_colors(bg, text, muted);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Both webviews share one WebView2 environment, so they must get the same arguments.
+    let launch = parse_args(std::env::args());
+    let cdp_port = control::free_port();
+    let control_listener = TcpListener::bind("127.0.0.1:0").expect("control port");
+    let session = control::Session {
+        control_port: control_listener.local_addr().map(|a| a.port()).unwrap_or(0),
+        cdp_port,
+        token: control::random_token(),
+    };
+    // Every webview shares one WebView2 environment, so all get the same arguments.
     // The disable-features list is wry's default, which setting our own arguments replaces.
-    let browser_args = format!(
-        "--remote-debugging-port={CDP_PORT} --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
-    );
+    let _ = browser::BROWSER_ARGS.set(format!(
+        "--remote-debugging-port={cdp_port} --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+    ));
 
-    tauri::Builder::default()
-        .manage(AppState::default())
+    let app = tauri::Builder::default()
+        // A second launch (say, the Herdr plugin opening a link) hands its
+        // request to the running app and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let request = parse_args(argv);
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let _ = browser::set_open(&app, true);
+                if let Some(url) = request.open {
+                    let _ = browser::new_tab(&app, Some(url), true);
+                }
+                if let Some(w) = app.get_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            });
+        }))
+        .manage(pty::PtyState::default())
+        .manage(browser::BrowserState(Default::default()))
         .invoke_handler(tauri::generate_handler![
+            app_info,
+            herdr_theme,
+            herdr_overview,
+            herdr_focus,
+            herdr_open_setup,
             pty_start,
             pty_write,
             pty_resize,
+            browser_set_open,
             browser_layout,
+            browser_new_tab,
+            browser_select_tab,
+            browser_close_tab,
             browser_navigate,
             browser_history,
-            cdp_port
+            browser_set_lite,
+            browser_state,
+            set_page_colors
         ])
         .setup(move |app| {
-            let (width, height) = (1360.0, 860.0);
+            let handle = app.handle().clone();
+            browser::init(&handle, sys::default_lite(&handle));
+
+            let (width, height) = if launch.browser_only { (960.0, 860.0) } else { (1400.0, 880.0) };
             let window = tauri::window::WindowBuilder::new(app, "main")
-                .title("ShellQuarry")
+                .title(if launch.browser_only { "ShellQuarry browser" } else { "ShellQuarry" })
                 .inner_size(width, height)
-                .min_inner_size(960.0, 600.0)
-                .theme(Some(tauri::Theme::Dark))
+                .min_inner_size(if launch.browser_only { 480.0 } else { 900.0 }, 560.0)
                 .center()
                 .build()?;
-
             window.add_child(
                 WebviewBuilder::new(UI, WebviewUrl::App("index.html".into()))
-                    .additional_browser_args(&browser_args)
+                    .additional_browser_args(browser::BROWSER_ARGS.get().unwrap())
                     .auto_resize(),
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(width, height),
             )?;
 
-            let handle = app.handle().clone();
-            let browser = window.add_child(
-                WebviewBuilder::new(BROWSER, WebviewUrl::External(start_page()))
-                    .additional_browser_args(&browser_args)
-                    .on_page_load(move |_webview, payload| {
-                        let page = BrowserPage {
-                            url: payload.url().to_string(),
-                            loading: matches!(payload.event(), PageLoadEvent::Started),
-                        };
-                        let _ = handle.emit_to(EventTarget::webview(UI), "browser-page", page);
-                    }),
-                LogicalPosition::new(width, 0.0),
-                LogicalSize::new(1.0, 1.0),
-            )?;
-            browser.hide()?;
+            control::start(handle.clone(), control_listener.try_clone()?, session.token.clone());
+            if let Err(e) = control::write_session(&handle, &session) {
+                eprintln!("could not write session file: {e}");
+            }
+
+            if launch.browser_only || launch.open.is_some() {
+                let url = launch.open.clone();
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    let _ = browser::set_open(&h, true);
+                    if let Some(url) = url {
+                        let _ = browser::navigate(&h, &url, None);
+                    }
+                });
+            }
+            app.manage(launch);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running ShellQuarry");
+        .build(tauri::generate_context!())
+        .expect("error while building ShellQuarry");
+
+    app.run(|handle, event| {
+        if let RunEvent::Exit = event {
+            control::remove_session(handle);
+        }
+    });
 }

@@ -6,3 +6,6 @@ release/
 ui/vendor/
 try-agent-output/
 dev.log
+build.log
+plugin/node_modules/
+plugin/try-agent-output/

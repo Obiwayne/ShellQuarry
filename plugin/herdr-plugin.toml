@@ -1,0 +1,41 @@
+id = "shellquarry.browser"
+name = "ShellQuarry Browser"
+version = "0.2.0"
+min_herdr_version = "0.9.0"
+description = "A browser for your agents: open it beside Herdr, Ctrl+click links into it, and let agents drive it over MCP"
+platforms = ["windows"]
+
+[[build]]
+command = ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund"]
+
+[[actions]]
+id = "open"
+title = "Open agent browser"
+contexts = ["workspace"]
+command = ["node", "bin/shellquarry.mjs", "open"]
+
+[[actions]]
+id = "close"
+title = "Close agent browser"
+contexts = ["workspace"]
+command = ["node", "bin/shellquarry.mjs", "close"]
+
+[[actions]]
+id = "open-link"
+title = "Open link in agent browser"
+contexts = ["workspace"]
+command = ["node", "bin/shellquarry.mjs", "open-link"]
+
+[[panes]]
+id = "setup"
+title = "ShellQuarry: connect agents"
+placement = "popup"
+width = "80%"
+height = "80%"
+command = ["node", "bin/setup.mjs"]
+
+[[link_handlers]]
+id = "web"
+title = "Open in agent browser"
+pattern = "^https?://"
+action = "open-link"

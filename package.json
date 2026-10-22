@@ -1,24 +1,23 @@
 {
   "name": "shellquarry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "The browser shell for Herdr and other terminal agent tools, with a built-in browser panel that agents can drive over MCP.",
+  "description": "The browser shell for Herdr: a terminal and a browser side panel your agents drive over MCP.",
   "license": "MIT",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
     "dev": "npm run vendor && tauri dev",
     "build": "npm run vendor && tauri build",
-    "mcp": "node mcp/server.mjs"
+    "themes": "node scripts/port-herdr-themes.mjs",
+    "icons": "node scripts/render-icon.mjs && tauri icon assets/icon.png -o src-tauri/icons"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2.12.4"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
     "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "playwright-core": "^1.64.1",
-    "zod": "^4.6.7"
+    "@xterm/xterm": "^6.0.0"
   }
 }
