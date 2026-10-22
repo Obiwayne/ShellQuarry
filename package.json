@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A desktop shell for terminal agent tools (like Herdr) with a built-in browser panel that agents can drive over MCP.",
+  "description": "The browser shell for Herdr and other terminal agent tools, with a built-in browser panel that agents can drive over MCP.",
   "license": "MIT",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",

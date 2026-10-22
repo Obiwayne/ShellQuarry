@@ -1,15 +1,29 @@
-# ShellQuarry (prototype)
+# ShellQuarry: the browser shell for Herdr (prototype)
 
-A desktop shell for terminal agent tools such as [Herdr](https://herdr.dev), with a browser side panel that your
-agents can drive, like the globe browser in the Claude Code desktop app.
+A desktop shell for [Herdr](https://herdr.dev) and other terminal agent tools, with a browser side panel that your
+agents can drive, like the globe browser in the Claude Code desktop app. Herdr keeps running unchanged inside it;
+ShellQuarry adds the window, the globe button and the browser.
+
+ShellQuarry is an independent project. It is not made by or affiliated with Herdr.
 
 - **Left:** a real terminal (xterm.js on a pseudoterminal from portable-pty). Run Herdr, Claude Code, Codex or anything else in it.
 - **Top right:** the globe button (or Ctrl+Shift+B) opens and closes the browser panel.
 - **Right:** the browser panel, a separate WebView2 webview with its own address bar. Agents control it over MCP, and a
   blue cursor glides to each thing they click or type into, so you can follow along.
 
-Built with Tauri 2 (MIT/Apache-2.0), xterm.js (MIT), portable-pty (MIT), Playwright's library (Apache-2.0) and the MCP
-TypeScript SDK (MIT).
+## Built with RepoQuarry
+
+ShellQuarry was put together with [RepoQuarry](https://repoquarry.dev), a catalogue of open-source projects with a
+source and a date for every fact. Its open-source building blocks were picked from RepoQuarry and are listed there
+under [Building blocks](https://repoquarry.dev/tags/building-blocks):
+
+| Piece | Project | Licence |
+|---|---|---|
+| App window | [Tauri](https://repoquarry.dev/projects/tauri) | MIT or Apache-2.0 |
+| Terminal screen | [xterm.js](https://repoquarry.dev/projects/xterm-js) | MIT |
+| Terminal process | [portable-pty](https://repoquarry.dev/projects/portable-pty) | MIT |
+| Browser control | Playwright's library (`playwright-core`), from the team behind [Playwright MCP](https://repoquarry.dev/projects/playwright-mcp) | Apache-2.0 |
+| Agent connection | MCP TypeScript SDK | MIT |
 
 ## Run it
 
