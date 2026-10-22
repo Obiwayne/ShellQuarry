@@ -13,6 +13,11 @@ It comes in two parts:
 
 ShellQuarry is an independent project. It is not made by or affiliated with Herdr.
 
+![ShellQuarry: Herdr agents in the sidebar, a Claude Code agent in the middle, and the browser on the right](docs/blog/hero.webp)
+
+**[Download the latest release](https://github.com/Obiwayne/ShellQuarry/releases/latest)** ·
+[Step-by-step install](#install-step-by-step) · [How it works](docs/how-it-works.md)
+
 ## What's in the window
 
 ShellQuarry puts buttons on Herdr, so you don't need to learn its keyboard shortcuts. Everything still runs in
@@ -73,24 +78,64 @@ name = "terminal"
 Machines with less than 12 GB of memory start in lite mode; click the Full/Lite chip to switch. **16 GB is
 recommended**; 8 GB works in lite mode with one or two agents.
 
-## Install
+## Install (step by step)
 
-1. Install [Herdr](https://herdr.dev) (`powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"`).
-2. Run the ShellQuarry installer (`ShellQuarry_0.3.0_x64-setup.exe` from Releases, or `npm run build`).
-3. Install the plugin (needs Node.js 20+):
+About 10 minutes on Windows 10 or 11. You need at least one coding agent you already use, such as
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex); they use
+your own subscription. 16 GB of memory is recommended; 8 GB works in lite mode.
 
-   ```
-   herdr plugin install Obiwayne/ShellQuarry/plugin
-   ```
+**1. Install Node.js.** Download the LTS version from [nodejs.org](https://nodejs.org) and run the installer with the
+default options. The browser plugin uses it.
 
-4. Connect your agents: click **Connect agents** in ShellQuarry's sidebar, or open the plugin's *connect agents*
-   popup in Herdr. It offers to add the browser to Claude Code and Codex. To do it by hand:
+**2. Install Herdr.** Open **PowerShell** (Start menu → type "PowerShell") and paste:
 
-   ```
-   claude mcp add --scope user shellquarry -- node "<plugin folder>/mcp/server.mjs"
-   ```
+```
+powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
+```
 
-5. Optional keybinding: add to `%APPDATA%\herdr\config.toml`, then `herdr server reload-config`:
+When it says "installed successfully", close PowerShell and open a new one so it can find `herdr`.
+
+**3. Install the browser plugin.** In the new PowerShell window, paste:
+
+```
+herdr plugin install Obiwayne/ShellQuarry/plugin
+```
+
+It shows what it will install and asks you to confirm. Type `y` and press Enter.
+
+**4. Install ShellQuarry.** Download `ShellQuarry_…_x64-setup.exe` from the
+[latest release](https://github.com/Obiwayne/ShellQuarry/releases/latest) and run it. No admin rights are needed.
+Windows may say "Windows protected your PC" because the installer isn't code-signed yet: click **More info**, then
+**Run anyway**.
+
+**5. Open ShellQuarry.** It starts Herdr in the middle of the window and shows a short tour.
+
+**6. Connect your agents to the browser.** Click **Connect agents to the browser** at the bottom of the sidebar. A
+popup opens in Herdr and asks, for each agent it finds, whether to add the browser. Type `y` and press Enter, then
+Enter again to close it. You only do this once.
+
+**7. Start an agent.** Click **New agent**, choose your agent and a project folder, and press **Start agent**. If the
+agent asks a question first (Claude Code asks whether you trust the folder), answer it in the terminal with the
+arrow keys and Enter. Then type in the message box at the bottom, for example *"open the GitHub page for this
+project and tell me what the README says"*, and watch it use the browser on the right.
+
+**Stuck?**
+
+- *"herdr is not recognized"*: close PowerShell and open a new one after step 2.
+- *The plugin install fails at `npm ci`*: Node.js isn't installed or the window was opened before installing it.
+- *The agent says it has no browser tools*: restart the agent after step 6 (close its pane and start it again).
+- *The New agent list says "Not installed on this PC"*: install that agent first, from its own website.
+
+To connect an agent by hand instead of step 6:
+
+```
+claude mcp add --scope user shellquarry -- node "<plugin folder>/mcp/server.mjs"
+```
+
+The popup shows the plugin folder's path.
+
+**Optional keybinding** to open the browser from Herdr: add to `%APPDATA%\herdr\config.toml`, then run
+`herdr server reload-config`:
 
    ```toml
    [[keys.command]]

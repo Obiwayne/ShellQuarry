@@ -51,6 +51,21 @@ if (agent?.agent_status === 'blocked') {
   check('prompting a waiting agent is refused, not typed', !!r.error, r.error);
 }
 
+// An agent that isn't installed is refused straight away, before any workspace is made.
+const kinds = (await call('herdr_agent_kinds')).ok || [];
+const missing = kinds.find((k) => !k.installed);
+if (missing) {
+  await ui.click('#new-agent');
+  await ui.selectOption('#dialog-body select', missing.kind);
+  await ui.locator('#dialog-body input[type=text]').nth(0).fill(folder);
+  const started = Date.now();
+  await ui.click('#dialog-ok');
+  await ui.waitForSelector('#dialog-error:not([hidden])', { timeout: 5000 }).catch(() => {});
+  const msg = await ui.textContent('#dialog-error');
+  check(`${missing.label} (not installed) is refused at once`, /isn't installed/.test(msg) && Date.now() - started < 5000, msg);
+  await ui.click('#dialog-cancel');
+}
+
 // Command palette.
 await ui.keyboard.press('Control+k');
 await ui.waitForSelector('#commands:not([hidden])');

@@ -23,6 +23,11 @@ check('globe reopens the panel', (await status()).open);
 
 const wasLite = before.lite;
 if (wasLite) { await ui.click('#mode'); await ui.waitForTimeout(800); }
+// Tabs unloaded earlier (in lite mode) load when opened, so open each one first.
+const { tabs, active } = await status();
+for (const t of tabs) { await control('POST', '/tabs/select', { tab: t.id }); await ui.waitForTimeout(300); }
+if (active) await control('POST', '/tabs/select', { tab: active });
+await ui.waitForTimeout(500);
 const full = await status();
 check('full mode keeps every tab loaded', alive(full) === full.tabs.length, `${alive(full)}/${full.tabs.length} loaded`);
 

@@ -26,6 +26,8 @@
   /** The agent the message box talks to: { machine, target, name }. */
   let selected = JSON.parse(store.get('selectedAgent') || 'null');
   const seen = new Map();
+  /** Agents the New agent dialog already told the user about, so the alert isn't repeated. */
+  const announced = new Set();
 
   const herdr = (args, machine = null) => invoke('herdr_cmd', { machine, args });
   /** The first pane_id anywhere in a Herdr result. */
@@ -210,6 +212,7 @@
       if (!before) continue;
       const entry = { agent: a, machine, machineLabel };
       const where = machine ? ` on ${machineLabel}` : '';
+      if (a.agent_status === 'blocked' && announced.delete(`${machine || ''}|${a.name}`)) continue;
       if (a.agent_status === 'blocked' && before.status !== 'blocked') {
         toast(`${nameOf(a)}${where} needs you`, { kind: 'error', action: 'Show', onAction: () => { select(entry); focusAgent(entry); }, timeout: 10000 });
       } else if (a.completion_seq && a.completion_seq !== before.done && a.agent_status !== 'working') {
@@ -484,7 +487,7 @@
       if (keepOpen !== true) closeDialog();
       refresh();
     } catch (err) {
-      els.dialogError.textContent = String(err);
+      els.dialogError.textContent = err?.message || String(err);
       els.dialogError.hidden = false;
     }
     els.dialogOk.disabled = false;
@@ -560,7 +563,7 @@
       kind.append(g);
     };
     group('Installed on this PC', installed);
-    group('Other agents Herdr supports', others);
+    group('Not installed on this PC', others);
     kind.value = store.get('lastKind') || installed[0]?.kind || 'claude';
 
     const where = document.createElement('select');
@@ -624,6 +627,10 @@
       ok: 'Start agent',
       submit: async () => {
         const m = where.value || null;
+        // Another machine may have it; here we know, so say so instead of waiting for Herdr to time out.
+        if (!m && kinds.length && !kinds.find((k) => k.kind === kind.value)?.installed) {
+          throw new Error(`${kindLabel(kind.value)} isn't installed on this PC. Install it first (see its own website), then try again.`);
+        }
         store.set('lastKind', kind.value);
         els.dialogOk.textContent = `Starting ${kindLabel(kind.value)}…`;
         let waiting = false;
@@ -655,6 +662,7 @@
         store.set('selectedAgent', JSON.stringify(selected));
         await refresh();
         if (waiting) {
+          announced.add(`${m || ''}|${agentName}`);
           // Usually a first-run question such as "Do you trust this folder?".
           toast(`${agentName} is asking a question in the terminal. Answer it there to get started.`, { timeout: 9000 });
           if (!m) run(herdr(['agent', 'focus', agentName])).then(() => term.focus());
@@ -838,7 +846,10 @@
       await invoke('herdr_open_setup');
       term.focus();
     } catch (err) {
-      toast(`Couldn't open the setup in Herdr: ${err}`, { kind: 'error' });
+      const busy = /already open|ui_busy/i.test(String(err));
+      toast(busy
+        ? 'The connect-agents popup is already open in Herdr. Finish or close it there first.'
+        : `Couldn't open the setup in Herdr: ${err}`, { kind: 'error', timeout: 8000 });
     }
   });
 
