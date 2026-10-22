@@ -11,9 +11,12 @@ It comes in two parts:
 - **A Herdr plugin**: "Open agent browser" from inside Herdr, Ctrl+click links into the agent browser, and a popup
   that connects Claude Code and Codex. Works whether you run Herdr inside ShellQuarry or in Windows Terminal.
 
-ShellQuarry is an independent project. It is not made by or affiliated with Herdr.
+ShellQuarry is a shell that sits on top of Herdr: Herdr still runs your agents, unchanged. ShellQuarry is an
+independent project, not made by or affiliated with Herdr.
 
-![ShellQuarry: Herdr agents in the sidebar, a Claude Code agent in the middle, and the browser on the right](docs/blog/hero.webp)
+![Herdr on its own, then ShellQuarry's sidebar, buttons and message box around it, then an agent clicking in the browser panel](docs/blog/shellquarry-herdr-browser.gif)
+
+![ShellQuarry: Herdr agents in the sidebar, a Claude Code agent in the middle that has just read herdr.dev, and the browser on the right](docs/blog/hero.webp)
 
 **[Download the latest release](https://github.com/Obiwayne/ShellQuarry/releases/latest)** ·
 [Step-by-step install](#install-step-by-step) · [How it works](docs/how-it-works.md)
@@ -232,6 +235,10 @@ node test/pick-palette.mjs "Claude dark"
 - The Herdr plugin needs Node.js, and agents need it to run the MCP server.
 - Agent screens are still drawn by each agent in the terminal; ShellQuarry adds controls around them rather than
   redrawing conversations as chat bubbles.
+- **Claude Code's plan usage** shows only for Claude Code agents started from ShellQuarry, and not when your Claude
+  settings have `"disableAllHooks": true` (that also turns off status lines, which is how Claude Code reports usage).
+- **Continue in another agent** reads Claude Code's and Codex's saved conversations; other agents hand over the end
+  of their terminal instead. Codex isn't connected to the browser automatically yet (use Connect agents).
 - Other machines are built on Herdr's documented `machine` and `--machine` commands but haven't been tested against a
   real remote machine yet.
 

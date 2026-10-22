@@ -12,7 +12,7 @@ export const GIF = { w: 1200, h: 760, fps: 30, frames: 330 };
 type Rect = { x: number; y: number; w: number; h: number };
 type Layout = { window: { w: number; h: number }; term: Rect; sidebar: Rect; toolbar: Rect; composer: Rect; titlebar: Rect; browser: Rect; click: [number, number]; start: [number, number] };
 
-const SCALE = 0.78; // window pixels → GIF pixels
+const SCALE = 0.72; // window pixels → GIF pixels
 const OX = (GIF.w - 1402 * SCALE) / 2;
 const OY = 92;
 

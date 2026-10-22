@@ -219,6 +219,10 @@ pub fn new_agent(
     if !valid_agent_name(name) {
         return Err("Names start with a lowercase letter and use only a-z, 0-9, - and _ (up to 32).".into());
     }
+    // Herdr starts a missing folder's workspace in the home folder instead, so say so here.
+    if machine.is_none() && !std::path::Path::new(cwd).is_dir() {
+        return Err(format!("{cwd} doesn't exist. Pick a folder that does, or create it first."));
+    }
     let created = if worktree {
         let mut args = vec!["worktree", "create", "--cwd", cwd, "--label", name, "--focus"];
         if let Some(b) = branch.filter(|b| !b.trim().is_empty()) {
