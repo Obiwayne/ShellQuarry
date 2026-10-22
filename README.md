@@ -138,7 +138,7 @@ Needs Windows 10/11, Node.js 20+, Rust and the Microsoft C++ Build Tools (see th
 ```
 npm install
 npm run dev          # run the app
-npm run build        # app + installer in src-tauri/target/release/bundle/nsis
+npm run build        # app + installer in src-tauri/target/release/bundle/nsis (local paths stripped)
 npm run icons        # re-render the icon from assets/icon.svg
 cd plugin && npm install
 herdr plugin link .  # use your working copy as the Herdr plugin

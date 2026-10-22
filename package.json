@@ -8,7 +8,7 @@
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
     "dev": "npm run vendor && tauri dev",
-    "build": "npm run vendor && tauri build",
+    "build": "node scripts/build.mjs",
     "themes": "node scripts/port-herdr-themes.mjs",
     "icons": "node scripts/render-icon.mjs && tauri icon assets/icon.png -o src-tauri/icons"
   },
